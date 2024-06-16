@@ -22,7 +22,13 @@ def normalization_strategy_lookup(strategy_name: str) -> object:
     elif strategy_name == "truecase":
         return TrueCaser()
 
-
+"""
+    - Detect and normalize homoglyph (characters visually similar but different unicode
+    datapoints) attacks in text at the ISO (International Organization for Standarization)
+    - Categorizes each character in the input text by the ISO category and identifies the 
+    most frequent category along with common characters
+    - Sanitization, by replacing the homoglyphs and there counterparts 
+"""
 class HomoglyphCanonizer:
     """Attempts to detect homoglyph attacks and find a consistent canon.
 
@@ -33,19 +39,21 @@ class HomoglyphCanonizer:
         self.homoglyphs = None
 
     def __call__(self, homoglyphed_str: str) -> str:
-        # find canon:
+        # Find the target category and all categories present in the text
         target_category, all_categories = self._categorize_text(homoglyphed_str)
+        # Loads the homoglyph table for the target category and common characters 
         homoglyph_table = self._select_canon_category_and_load(target_category, all_categories)
+        # Sanitize by replacing homoglyphs with canonical characters
         return self._sanitize_text(target_category, homoglyph_table, homoglyphed_str)
 
     def _categorize_text(self, text: str) -> dict:
         iso_categories = defaultdict(int)
-        # self.iso_languages = defaultdict(int)
 
+        # Count the occurrence of each ISO categpry in the text
         for char in text:
             iso_categories[hg.Categories.detect(char)] += 1
-            # for lang in hg.Languages.detect(char):
-            #     self.iso_languages[lang] += 1
+
+        # Determine the most frequently used ISO category
         target_category = max(iso_categories, key=iso_categories.get)
         all_categories = tuple(iso_categories)
         return target_category, all_categories
@@ -54,11 +62,14 @@ class HomoglyphCanonizer:
     def _select_canon_category_and_load(
         self, target_category: str, all_categories: tuple[str]
     ) -> dict:
+        # Load the homoglph table for the targte category and common characters
         homoglyph_table = hg.Homoglyphs(
             categories=(target_category, "COMMON")
         )  # alphabet loaded here from file
 
+        # Alphabet from all detected categories
         source_alphabet = hg.Categories.get_alphabet(all_categories)
+        # Restrict the homoglyph table to the source alphabet
         restricted_table = homoglyph_table.get_restricted_table(
             source_alphabet, homoglyph_table.alphabet
         )  # table loaded here from file
@@ -70,14 +81,22 @@ class HomoglyphCanonizer:
         sanitized_text = ""
         for char in homoglyphed_str:
             # langs = hg.Languages.detect(char)
+            # Detect the ISO category of the character
             cat = hg.Categories.detect(char)
+            # If the character belongs to the target categpry, common category, or has no
+            # caregory then keep it 
             if target_category in cat or "COMMON" in cat or len(cat) == 0:
                 sanitized_text += char
             else:
+                # Replace the character with its counterpart from the homoglyph table
                 sanitized_text += list(homoglyph_table[char])[0]
         return sanitized_text
 
-
+"""
+    - Sanitize text by removing undesirable unicode characters based on the 
+    rulesets of removing whitespaces, removing characters in the IDN blacklist
+    and converting text to ASCII
+"""
 class UnicodeSanitizer:
     """Regex-based unicode sanitzer. Has different levels of granularity.
 
@@ -153,7 +172,10 @@ class UnicodeSanitizer:
         )  # Remove any remaining non-printable characters
         return text
 
-
+"""
+    - True-casing text involving normalizing the capitalization of words to their original form
+    - ****Manipluation attacks****
+"""
 class TrueCaser:
     """True-casing, is a capitalization normalization that returns text to its original capitalization.
 
@@ -169,6 +191,7 @@ class TrueCaser:
             import spacy
 
             self.nlp = spacy.load("en_core_web_sm")
+            # True-casing function
             self.normalize_fn = self._spacy_truecasing
         else:
             from nltk import pos_tag, word_tokenize  # noqa
@@ -177,13 +200,16 @@ class TrueCaser:
             nltk.download("punkt")
             nltk.download("averaged_perceptron_tagger")
             nltk.download("universal_tagset")
+            # True-casing function
             self.normalize_fn = self._nltk_truecasing
 
     def __call__(self, random_capitalized_string: str) -> str:
+        # Execute the true-caseing
         truecased_str = self.normalize_fn(random_capitalized_string)
         return truecased_str
 
     def _spacy_truecasing(self, random_capitalized_string: str):
+        # Tokenize and process text
         doc = self.nlp(random_capitalized_string.lower())
         POS = self.uppercase_pos
         truecased_str = "".join(
@@ -201,8 +227,10 @@ class TrueCaser:
         nltk.download("punkt")
         nltk.download("averaged_perceptron_tagger")
         nltk.download("universal_tagset")
-        POS = ["NNP", "NNPS"]
+        POS = ["NNP", "NNPS"] # POS tages proper nouns
 
+        # Tokenize and tag text 
         tagged_text = pos_tag(word_tokenize(random_capitalized_string.lower()))
+        # True-case based on POS tags
         truecased_str = " ".join([w.capitalize() if p in POS else w for (w, p) in tagged_text])
         return truecased_str

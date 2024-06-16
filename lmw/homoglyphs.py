@@ -20,7 +20,11 @@ ASCII_RANGE = range(128)
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_LOCATION = os.path.join(CURRENT_DIR, "homoglyph_data")
 
-
+"""
+    - Working with the ISO character categories
+    - Provides methods to retrieve the alphabet based on specified categories
+    - Detects the category of a given character and fetches available categories
+"""
 class Categories:
     """
     Work with aliases from ISO 15924.
@@ -29,6 +33,7 @@ class Categories:
 
     fpath = os.path.join(DATA_LOCATION, "categories.json")
 
+    # Retrieves character ranges for given categories from JSON
     @classmethod
     def _get_ranges(cls, categories):
         """
@@ -46,6 +51,7 @@ class Categories:
             if point[2] in categories:
                 yield point[:2]
 
+    # Retrives the set of characters belonging to specified categories
     @classmethod
     def get_alphabet(cls, categories):
         """
@@ -58,6 +64,7 @@ class Categories:
             alphabet.update(chars)
         return alphabet
 
+    # Detect the category of a given charcter
     @classmethod
     def detect(cls, char):
         """
@@ -84,13 +91,16 @@ class Categories:
             if point[0] <= code <= point[1]:
                 return point[2]
 
+    # Retrieve all available categories
     @classmethod
     def get_all(cls):
         with open(cls.fpath, encoding="utf-8") as f:
             data = json.load(f)
         return set(data["aliases"])
 
-
+"""
+    - 
+"""
 class Languages:
     fpath = os.path.join(DATA_LOCATION, "languages.json")
 

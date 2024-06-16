@@ -1,4 +1,4 @@
-from lmw.extended_watermark_processor import WatermarkLogitsProcessor
+from lmw.watermark_processor import WatermarkLogitsProcessor
 from transformers import pipeline, AutoModelForTokenClassification, AutoTokenizer
 
 # https://huggingface.co/docs/transformers/en/main_classes/pipelines

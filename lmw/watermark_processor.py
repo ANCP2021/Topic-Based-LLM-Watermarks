@@ -29,8 +29,15 @@ from nltk.util import ngrams
 
 from normalizers import normalization_strategy_lookup
 
-
+"""
+    - Managing watermarking parameters and operations given a vocabulary V.
+    - Allows for seeding the random number generator based on input tokens and selecting a subset of 
+    green listed tokens from V. 
+    - Provides methods to seed the random number generator using a specific scheme and to generate the list
+    of green IDs based on the seeded random number generator/other paramters.
+"""
 class WatermarkBase:
+
     def __init__(
         self,
         vocab: list[int] = None,
@@ -58,10 +65,12 @@ class WatermarkBase:
             seeding_scheme = self.seeding_scheme
 
         if seeding_scheme == "simple_1":
+            # There needs to be at least one token in the input for seeding 
             assert input_ids.shape[-1] >= 1, f"seeding_scheme={seeding_scheme} requires at least a 1 token prefix sequence to seed rng"
+            # Seed the random number generator using the last token in the input sequence and hash key
             prev_token = input_ids[-1].item()
             self.rng.manual_seed(self.hash_key * prev_token)
-        else:
+        else: # error for unimplmented seeding 
             raise NotImplementedError(f"Unexpected seeding_scheme: {seeding_scheme}")
         return
 
@@ -70,52 +79,75 @@ class WatermarkBase:
         # according to the seeding_scheme
         self._seed_rng(input_ids)
 
+        # Size of the green list based on the gamma and V size hyperparameters
         greenlist_size = int(self.vocab_size * self.gamma)
+        # Generate permutations on the vocabulary
         vocab_permutation = torch.randperm(self.vocab_size, device=input_ids.device, generator=self.rng)
         if self.select_green_tokens:  # directly
+            # Selects the first green list size tokens from the permutations for the green list
             greenlist_ids = vocab_permutation[:greenlist_size]  # new
         else:  # select green via red
+            # Selects the last green list size tokens
             greenlist_ids = vocab_permutation[(self.vocab_size - greenlist_size) :]  # legacy behavior
         return greenlist_ids
 
-
+"""
+    - Extends WatermarkBase and HuggingFace LogitsProcessor modifying the logits of a model bassed on
+    the watermarking scheme
+    - Calculates a mask for green listed tokens, bias of logtis of green listed tokens, and applies
+    the modifications during the forward pass
+"""
 class WatermarkLogitsProcessor(WatermarkBase, LogitsProcessor):
     def __init__(self, *args, **kwargs):
+        # Initializes the parent class with the given arguements 
         super().__init__(*args, **kwargs)
 
     def _calc_greenlist_mask(self, scores: torch.FloatTensor, greenlist_token_ids) -> torch.BoolTensor:
-        # TODO lets see if we can lose this loop
+        # Creates the mask for the green listed tokens
         green_tokens_mask = torch.zeros_like(scores)
         for b_idx in range(len(greenlist_token_ids)):
+            # Sets the positions of green list tokens to 1
             green_tokens_mask[b_idx][greenlist_token_ids[b_idx]] = 1
+        # Converts the mask to a boolean tensor
         final_mask = green_tokens_mask.bool()
         return final_mask
 
     def _bias_greenlist_logits(self, scores: torch.Tensor, greenlist_mask: torch.Tensor, greenlist_bias: float) -> torch.Tensor:
+        # Increases the scores if the green listed tokens by a green list bias
         scores[greenlist_mask] = scores[greenlist_mask] + greenlist_bias
         return scores
 
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
 
-        # this is lazy to allow us to colocate on the watermarked model's device
+        # Initialize the random number generator if not set, colocating on the same device as input ids
         if self.rng is None:
             self.rng = torch.Generator(device=input_ids.device)
 
-        # NOTE, it would be nice to get rid of this batch loop, but currently,
-        # the seed and partition operations are not tensor/vectorized, thus
-        # each sequence in the batch needs to be treated separately.
+        # List to store the green list IDs for each sequence in the batch
         batched_greenlist_ids = [None for _ in range(input_ids.shape[0])]
 
         for b_idx in range(input_ids.shape[0]):
+            # Get green list IDs for the current sequence
             greenlist_ids = self._get_greenlist_ids(input_ids[b_idx])
             batched_greenlist_ids[b_idx] = greenlist_ids
 
+        # Calculates the mast for the green listed tokens
         green_tokens_mask = self._calc_greenlist_mask(scores=scores, greenlist_token_ids=batched_greenlist_ids)
 
+        # Bias the logits of the green listed tokens
         scores = self._bias_greenlist_logits(scores=scores, greenlist_mask=green_tokens_mask, greenlist_bias=self.delta)
         return scores
 
-
+"""
+    - Inherits from the WatermarkBase
+    - Detectes watermarks in the token sequence
+    - Initilizes device, tokenizer, and normalization strategies
+    - Computes z-scores and p-values for sequences whether tokens fall into the green list or not
+    - Considers bigrams (two consecutive tokens) or standard token sequences and returns 
+    metrics about the watermark detection (number of green tokens, z-scores, p-values)
+    - Detectin of watermarks in either raw or pre-tokenized input, normalizing the text and performing
+    the detection process returning results
+"""
 class WatermarkDetector(WatermarkBase):
     def __init__(
         self,
@@ -132,24 +164,29 @@ class WatermarkDetector(WatermarkBase):
         assert device, "Must pass device"
         assert tokenizer, "Need an instance of the generating tokenizer to perform detection"
 
+        # Instance attributes
         self.tokenizer = tokenizer
         self.device = device
         self.z_threshold = z_threshold
         self.rng = torch.Generator(device=self.device)
 
+        # Seeding scheme 
         if self.seeding_scheme == "simple_1":
             self.min_prefix_len = 1
         else:
             raise NotImplementedError(f"Unexpected seeding_scheme: {self.seeding_scheme}")
 
+        # Initialization of normalizers based on provided 
         self.normalizers = []
         for normalization_strategy in normalizers:
             self.normalizers.append(normalization_strategy_lookup(normalization_strategy))
 
+        # Repeated bigrams handling
         self.ignore_repeated_bigrams = ignore_repeated_bigrams
         if self.ignore_repeated_bigrams:
             assert self.seeding_scheme == "simple_1", "No repeated bigram credit variant assumes the single token seeding scheme."
 
+    # Computes z-scores for the observed green token count
     def _compute_z_score(self, observed_count, T):
         # count refers to number of green tokens, T is total number of tokens
         expected_count = self.gamma
@@ -159,6 +196,7 @@ class WatermarkDetector(WatermarkBase):
         return z
 
     def _compute_p_value(self, z):
+        # Computes p-value from the z-score
         p_value = scipy.stats.norm.sf(z)
         return p_value
 
@@ -213,6 +251,7 @@ class WatermarkDetector(WatermarkBase):
                 else:
                     green_token_mask.append(False)
 
+        # Results dictionary
         score_dict = dict()
         if return_num_tokens_scored:
             score_dict.update(dict(num_tokens_scored=num_tokens_scored))
@@ -242,6 +281,7 @@ class WatermarkDetector(WatermarkBase):
         **kwargs,
     ) -> dict:
 
+        # Look at either raw or tokenized text is provided, not both
         assert (text is not None) ^ (tokenized_text is not None), "Must pass either the raw or tokenized string"
         if return_prediction:
             kwargs["return_p_value"] = True  # to return the "confidence":=1-p of positive detections
@@ -252,21 +292,22 @@ class WatermarkDetector(WatermarkBase):
         if len(self.normalizers) > 0:
             print(f"Text after normalization:\n\n{text}\n")
 
-        if tokenized_text is None:
+        if tokenized_text is None: # Ensure tokenizer is available for raw text processing
             assert self.tokenizer is not None, (
                 "Watermark detection on raw string ",
                 "requires an instance of the tokenizer ",
                 "that was used at generation time.",
             )
+            # Tokenize the text input
             tokenized_text = self.tokenizer(text, return_tensors="pt", add_special_tokens=False)["input_ids"][0].to(self.device)
             if tokenized_text[0] == self.tokenizer.bos_token_id:
                 tokenized_text = tokenized_text[1:]
         else:
-            # try to remove the bos_tok at beginning if it's there
+            # try to remove the beginning of sequence token if it's there
             if (self.tokenizer is not None) and (tokenized_text[0] == self.tokenizer.bos_token_id):
                 tokenized_text = tokenized_text[1:]
 
-        # call score method
+        # call score method to evaluate the sequence
         output_dict = {}
         score_dict = self._score_sequence(tokenized_text, **kwargs)
         if return_scores:
