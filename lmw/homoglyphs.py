@@ -99,11 +99,15 @@ class Categories:
         return set(data["aliases"])
 
 """
-    - 
+    - Used for working with languages and their alphabets
+    - Methods to retrieve alphabets based on different languages,
+    detect languages containing a given character, and fetch all available
+    languages
 """
 class Languages:
     fpath = os.path.join(DATA_LOCATION, "languages.json")
 
+    # Retrieve set of characters in the alphabets for specified languages
     @classmethod
     def get_alphabet(cls, languages):
         """
@@ -119,6 +123,7 @@ class Languages:
             alphabet.update(data[lang])
         return alphabet
 
+    # Detect languages containing a given character in their alphabet
     @classmethod
     def detect(cls, char):
         """
@@ -133,24 +138,28 @@ class Languages:
                 languages.add(lang)
         return languages
 
+    # Get all available languages 
     @classmethod
     def get_all(cls):
         with open(cls.fpath, encoding="utf-8") as f:
             data = json.load(f)
         return set(data.keys())
 
-
+"""
+    - Managing homoglyph detection and manipluation based on alphabets,
+    categories and languages
+"""
 class Homoglyphs:
     def __init__(
         self,
-        categories=None,
-        languages=None,
-        alphabet=None,
-        strategy=STRATEGY_IGNORE,
-        ascii_strategy=STRATEGY_IGNORE,
-        ascii_range=ASCII_RANGE,
+        categories=None,                # Set of unicode categories for homoglyph detection
+        languages=None,                 # Set of languages for homoglyph detection
+        alphabet=None,                  # Set of characters considered for homoglyph substitution
+        strategy=STRATEGY_IGNORE,       # Handles characters not in alphabet
+        ascii_strategy=STRATEGY_IGNORE, # Handles ASCII characters
+        ascii_range=ASCII_RANGE,        # range of ASCII charcaters
     ):
-        # strategies
+        # Validate strategies
         if strategy not in (STRATEGY_LOAD, STRATEGY_IGNORE, STRATEGY_REMOVE):
             raise ValueError("Invalid strategy")
         self.strategy = strategy
@@ -165,7 +174,7 @@ class Homoglyphs:
         self.categories = set(categories or [])
         self.languages = set(languages or [])
 
-        # alphabet
+        # Update alphabet based on categories and languages
         self.alphabet = set(alphabet or [])
         if self.categories:
             alphabet = Categories.get_alphabet(self.categories)
@@ -175,6 +184,7 @@ class Homoglyphs:
             self.alphabet.update(alphabet)
         self.table = self.get_table(self.alphabet)
 
+    # Retrieves homoglyph tables based on the provided alphabet
     @staticmethod
     def get_table(alphabet):
         table = defaultdict(set)
@@ -187,6 +197,7 @@ class Homoglyphs:
                         table[char].add(homoglyph)
         return table
 
+    # Retrieves restricted homoglyph table between source and target alphabets
     @staticmethod
     def get_restricted_table(source_alphabet, target_alphabet):
         table = defaultdict(set)
@@ -199,12 +210,14 @@ class Homoglyphs:
                         table[char].add(homoglyph)
         return table
 
+    # Removes duplciates from a list and sorts it based on length and lexicograph
     @staticmethod
     def uniq_and_sort(data):
         result = list(set(data))
         result.sort(key=lambda x: (-len(x), x))
         return result
 
+    # Updates the alphabet and homoglyph table based on detected languages or categories
     def _update_alphabet(self, char):
         # try detect languages
         langs = Languages.detect(char)
@@ -224,6 +237,7 @@ class Homoglyphs:
         self.table = self.get_table(self.alphabet)
         return True
 
+    # Retrieves unique and sorted homoglyph variants for a given character
     def _get_char_variants(self, char):
         if char not in self.alphabet:
             if self.strategy == STRATEGY_LOAD:
@@ -247,6 +261,7 @@ class Homoglyphs:
         # uniq, sort and return
         return self.uniq_and_sort(alt_chars)
 
+    # Generates all possible combinations of text with homoglyph substitutions
     def _get_combinations(self, text, ascii=False):
         variations = []
         for char in text:
@@ -263,13 +278,16 @@ class Homoglyphs:
             for variant in product(*variations):
                 yield "".join(variant)
 
+    # List of all pssible combinations of text with homoglyph substitution
     def get_combinations(self, text):
         return list(self._get_combinations(text))
 
+    # Converts text into ASCII generating possible ASCII variants with homoglyph substitutions
     def _to_ascii(self, text):
         for variant in self._get_combinations(text, ascii=True):
             if max(map(ord, variant)) in self.ascii_range:
                 yield variant
 
+    # List of unique ASCII variants of the input text
     def to_ascii(self, text):
         return self.uniq_and_sort(self._to_ascii(text))
