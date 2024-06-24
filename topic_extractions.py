@@ -12,6 +12,13 @@ from gensim.models import LdaModel
 from gensim.models.coherencemodel import CoherenceModel
 import ssl
 
+from transformers import (
+    pipeline, 
+    GPT2Tokenizer, 
+    GPT2LMHeadModel
+)
+
+
 try:
     _create_unverified_https_context = ssl._create_unverified_context
 except AttributeError:
@@ -82,6 +89,13 @@ def lda(input, num_topics):
 
     return lda_model
 
+def generate_response(prompt, model, tokenizer, max_length):
+    inputs = tokenizer(prompt, return_tensors="pt")
+    outputs = model.generate(input_ids=inputs['input_ids'], max_length=max_length)
+    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+    return response
+
 if __name__ == "__main__":
     with open('input_prompt.txt', 'r') as file:
         input_prompt = file.read()
@@ -92,3 +106,29 @@ if __name__ == "__main__":
     # print LDA topics
     for topic in lda_model.print_topics(-1):
         print(topic)
+
+
+    prompt = """Given the below essay, provide the top 7 most relevant topics in the format of one word per topic as:
+        Topic 1: {}
+        Topic 2: {}
+        Topic 3: {}
+        Topic 4: {}
+        Topic 5: {}
+        Topic 6: {}
+        Topic 7: {}"""
+
+    model_name = "gpt2"
+    tokenizer = GPT2Tokenizer.from_pretrained(model_name)
+    model = GPT2LMHeadModel.from_pretrained(model_name)
+
+    # prompt with the essay content
+    full_prompt = prompt.format(*["" for _ in range(7)])  # Placeholder for topics
+
+    # Combine essay content and prompt
+    combined_prompt = input_prompt.strip() + "\n\n" + full_prompt
+
+    # Generate response
+    generated_text = generate_response(combined_prompt, model, tokenizer, max_length=800)
+
+    # Print the generated response
+    print(f"Generated text: ", generated_text)
