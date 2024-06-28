@@ -27,7 +27,7 @@ from transformers import LogitsProcessor
 
 from nltk.util import ngrams
 
-from normalizers import normalization_strategy_lookup
+from lmw.normalizers import normalization_strategy_lookup
 
 """
     - Managing watermarking parameters and operations given a vocabulary V.
