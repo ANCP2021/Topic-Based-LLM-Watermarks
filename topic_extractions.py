@@ -1,24 +1,16 @@
 import re
 import nltk
-import string
-import numpy as np
-from gutenbergpy import textget
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from nltk.corpus import wordnet
 from gensim import corpora
 from gensim.models import LdaModel
-from gensim.models.coherencemodel import CoherenceModel
 import ssl
-
 from transformers import (
-    pipeline, 
-    GPT2Tokenizer, 
-    GPT2LMHeadModel
+    AutoModelForCausalLM,
+    AutoTokenizer
 )
-
-
 try:
     _create_unverified_https_context = ssl._create_unverified_context
 except AttributeError:
@@ -30,8 +22,6 @@ nltk.download('punkt')
 nltk.download('wordnet')
 nltk.download('stopwords')
 nltk.download('averaged_perceptron_tagger')
-
-DEBUG = 0
 
 # POS tags for lemmatization
 def wordnet_pos_tags(treebank_tag):
@@ -96,39 +86,40 @@ def generate_response(prompt, model, tokenizer, max_length):
 
     return response
 
+def llm_topic_extraction(input_text):
+
+    model_name = "facebook/opt-1.3b"
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name)
+
+    prompt = f"Extract main topics from the following text:\n\n{input_text}\n\nTopics:"
+
+    inputs = tokenizer(prompt, return_tensors="pt")
+
+    output_sequences = model.generate(
+        inputs['input_ids'],
+        max_length=inputs['input_ids'].shape[1] + 50,
+        num_return_sequences=1,
+        no_repeat_ngram_size=2,
+        num_beams=5
+    )
+
+    # Decode the output
+    output_text = tokenizer.decode(output_sequences[0], skip_special_tokens=True)
+    # Extract the topics from the output text
+    topics_start = output_text.find("Topics:") + len("Topics:")
+    topics_text = output_text[topics_start:].strip().split(', ')
+
+    return topics_text
+
+
 if __name__ == "__main__":
     with open('input_prompt.txt', 'r') as file:
         input_prompt = file.read()
 
-    num_topics = 7
+    num_topics = 3
+
     lda_model = lda(input_prompt, num_topics)
+    
+    topics = llm_topic_extraction(input_prompt)
 
-    # print LDA topics
-    for topic in lda_model.print_topics(-1):
-        print(topic)
-
-
-    prompt = """Given the below essay, provide the top 7 most relevant topics in the format of one word per topic as:
-        Topic 1: {}
-        Topic 2: {}
-        Topic 3: {}
-        Topic 4: {}
-        Topic 5: {}
-        Topic 6: {}
-        Topic 7: {}"""
-
-    model_name = "gpt2"
-    tokenizer = GPT2Tokenizer.from_pretrained(model_name)
-    model = GPT2LMHeadModel.from_pretrained(model_name)
-
-    # prompt with the essay content
-    full_prompt = prompt.format(*["" for _ in range(7)])  # Placeholder for topics
-
-    # Combine essay content and prompt
-    combined_prompt = input_prompt.strip() + "\n\n" + full_prompt
-
-    # Generate response
-    generated_text = generate_response(combined_prompt, model, tokenizer, max_length=800)
-
-    # Print the generated response
-    print(f"Generated text: ", generated_text)

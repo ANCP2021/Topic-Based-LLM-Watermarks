@@ -1,6 +1,5 @@
-# from lmw.watermark_processor import WatermarkLogitsProcessor
-from topic_watermark_processor import WatermarkLogitsProcessor
-from lmw.normalizers import normalization_strategy_lookup
+from topic_watermark_processor import TopicWatermarkLogitsProcessor
+from lmw.extended_watermark_processor import WatermarkLogitsProcessor
 from transformers import (
         AutoTokenizer,
         AutoModelForSeq2SeqLM,
@@ -9,16 +8,14 @@ from transformers import (
     )
 import torch
 from functools import partial
-
+from topic_extractions import llm_topic_extraction
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 args = {
-    # 'run_gradio': False, 
-    # 'run_gradio': True,
     'demo_public': False, 
-    'model_name_or_path': 'facebook/opt-125m', 
-    # 'model_name_or_path': 'facebook/opt-1.3b', 
+    # 'model_name_or_path': 'facebook/opt-125m', 
+    'model_name_or_path': 'facebook/opt-1.3b', 
     # 'model_name_or_path': 'facebook/opt-2.7b', 
     # 'model_name_or_path': 'facebook/opt-6.7b',
     # 'model_name_or_path': 'facebook/opt-13b',
@@ -40,6 +37,13 @@ args = {
     'select_green_tokens': True,
     'skip_model_load': False,
     'seed_separately': True,
+    'is_topic': True,
+    'topic_token_mapping': {
+        "animals": list(range(5000)),
+        "sports": list(range(5000, 10000)),
+        # Add more topics and corresponding tokens as needed
+    },
+    'detected_topic': "",
 }
 
 # Loads and returns the model
@@ -63,23 +67,40 @@ def load_model(args):
 
     tokenizer = AutoTokenizer.from_pretrained(args['model_name_or_path'])
 
-    # model.eval()
-
     return model, tokenizer
-
 
 # Instatiate the WatermarkLogitsProcessor according to the watermark parameters
 # and generate watermarked text by passing it to the generate method of the model
 # as a logits processor.
-def generate(prompt, args, model=None, tokenizer=None):
+def generate(prompt, detected_topics, args, model=None, tokenizer=None):
     
-    watermark_processor = WatermarkLogitsProcessor(
-        vocab=list(tokenizer.get_vocab().values()),
-        gamma=args['gamma'],
-        delta=args['delta'],
-        seeding_scheme=args['seeding_scheme'],
-        select_green_tokens=args['select_green_tokens']
-    )
+    # if set to is_topic, use topic based watermarks
+    if args['is_topic']:
+        detected_topic = ''
+        for topic in detected_topics:
+            if topic.lower() in args['topic_token_mapping']:
+                detected_topic = topic.lower()
+                break
+        if detected_topic == '':
+            detected_topic = detected_topics[0]
+
+        watermark_processor = TopicWatermarkLogitsProcessor(
+            vocab=list(tokenizer.get_vocab().values()),
+            gamma=args['gamma'],
+            delta=args['delta'],
+            seeding_scheme=args['seeding_scheme'],
+            select_green_tokens=args['select_green_tokens'],
+            topic_token_mapping=args['topic_token_mapping'],
+            detected_topic=detected_topic,
+        )
+    else: # else use regular watermarking
+        watermark_processor = WatermarkLogitsProcessor(
+            vocab=list(tokenizer.get_vocab().values()),
+            gamma=args['gamma'],
+            delta=args['delta'],
+            seeding_scheme=args['seeding_scheme'],
+            select_green_tokens=args['select_green_tokens']
+        )
 
     gen_kwargs = dict(max_new_tokens=args['max_new_tokens'])
 
@@ -94,17 +115,23 @@ def generate(prompt, args, model=None, tokenizer=None):
             num_beams=args['n_beams']
         ))
 
-    ################################
-
+    # generate without the watermark 
     generate_without_watermark = partial(
         model.generate,
         **gen_kwargs
     )
+
+    # Updated generate_with_watermark to pass input_text to the processor
+    # def logits_processor_with_input(input_ids, scores):
+    #     return watermark_processor(input_ids, scores, prompt)
+
+    # generate with watermark using LogitsProcessorList
     generate_with_watermark = partial(
         model.generate,
         logits_processor=LogitsProcessorList([watermark_processor]), 
         **gen_kwargs
     )
+
     if args['prompt_max_length']:
         pass
     elif hasattr(model.config,"max_position_embedding"):
@@ -144,72 +171,63 @@ def generate(prompt, args, model=None, tokenizer=None):
             int(truncation_warning),
             decoded_output_without_watermark, 
             decoded_output_with_watermark,
-) 
-
+    ) 
 
 if __name__ == '__main__':
-    args['normalizers'] = (args['normalizers'].split(",") if args['normalizers'] else [])
 
-    # model = AutoModelForCausalLM.from_pretrained("facebook/opt-1.3b")
-    # tokenizer = AutoTokenizer.from_pretrained("facebook/opt-1.3b")
+    args['normalizers'] = (args['normalizers'].split(",") if args['normalizers'] else [])
 
     model, tokenizer = load_model(args)
 
-    # watermark_processor = WatermarkLogitsProcessor(
-    #     vocab=list(tokenizer.get_vocab().values()), 
-    #     gamma=0.25, 
-    #     delta=2.0, 
-    #     seeding_scheme="selfhash"
+    # input_text = (
+    #     "The diamondback terrapin or simply terrapin (Malaclemys terrapin) is a "
+    #     "species of turtle native to the brackish coastal tidal marshes of the "
+    #     "Northeastern and southern United States, and in Bermuda.[6] It belongs "
+    #     "to the monotypic genus Malaclemys. It has one of the largest ranges of "
+    #     "all turtles in North America, stretching as far south as the Florida Keys "
+    #     "and as far north as Cape Cod.[7] The name 'terrapin' is derived from the "
+    #     "Algonquian word torope.[8] It applies to Malaclemys terrapin in both "
+    #     "British English and American English. The name originally was used by "
+    #     "early European settlers in North America to describe these brackish-water "
+    #     "turtles that inhabited neither freshwater habitats nor the sea. It retains "
+    #     "this primary meaning in American English.[8] In British English, however, "
+    #     "other semi-aquatic turtle species, such as the red-eared slider, might "
+    #     "also be called terrapins. The common name refers to the diamond pattern "
+    #     "on top of its shell (carapace), but the overall pattern and coloration "
+    #     "vary greatly. The shell is usually wider at the back than in the front, "
+    #     "and from above it appears wedge-shaped. The shell coloring can vary "
+    #     "from brown to grey, and its body color can be grey, brown, yellow, "
+    #     "or white. All have a unique pattern of wiggly, black markings or spots "
+    #     "on their body and head. The diamondback terrapin has large webbed "
+    #     "feet.[9] The species is"
     # )
 
     input_text = (
-        "The diamondback terrapin or simply terrapin (Malaclemys terrapin) is a "
-        "species of turtle native to the brackish coastal tidal marshes of the "
-        "Northeastern and southern United States, and in Bermuda.[6] It belongs "
-        "to the monotypic genus Malaclemys. It has one of the largest ranges of "
-        "all turtles in North America, stretching as far south as the Florida Keys "
-        "and as far north as Cape Cod.[7] The name 'terrapin' is derived from the "
-        "Algonquian word torope.[8] It applies to Malaclemys terrapin in both "
-        "British English and American English. The name originally was used by "
-        "early European settlers in North America to describe these brackish-water "
-        "turtles that inhabited neither freshwater habitats nor the sea. It retains "
-        "this primary meaning in American English.[8] In British English, however, "
-        "other semi-aquatic turtle species, such as the red-eared slider, might "
-        "also be called terrapins. The common name refers to the diamond pattern "
-        "on top of its shell (carapace), but the overall pattern and coloration "
-        "vary greatly. The shell is usually wider at the back than in the front, "
-        "and from above it appears wedge-shaped. The shell coloring can vary "
-        "from brown to grey, and its body color can be grey, brown, yellow, "
-        "or white. All have a unique pattern of wiggly, black markings or spots "
-        "on their body and head. The diamondback terrapin has large webbed "
-        "feet.[9] The species is"
-    )
+        "Basketball, a sport that has become a global phenomenon, was invented by Dr. James Naismith "
+        "in December 1891. Naismith, a physical education instructor, created the game as a way to keep "
+        "his students active indoors during the harsh winters in Springfield, Massachusetts. Using a soccer "
+        "ball and two peach baskets, he developed a game with 13 basic rules. The objective was simple: score "
+        "by shooting the ball into the opposing team's basket. From these humble beginnings, basketball has "
+        "evolved into a sophisticated sport with a rich history and a profound impact on culture and society. "
+        "\n"
+        "In the early 20th century, basketball rapidly gained popularity in the United States. The formation "
+        "of the National Basketball Association (NBA) in 1946 marked a significant milestone, providing a "
+        "professional platform for the sport. The NBA facilitated the rise of basketball as a major spectator sport, "
+        "attracting millions of fans with its high-flying dunks, precise shooting, and strategic gameplay. Players like "
+        "Wilt Chamberlain, Bill Russell, and later, Michael Jordan, became household names, elevating the sport's status "
+        "and inspiring countless young athletes around the world."
+        "\n"
+        "Basketball's influence extends beyond the court. It has become a cultural force, impacting fashion, music, and "
+        "lifestyle. The \"streetball\" culture, "
+        )
 
-    # input_text = (
-    #     "Basketball, a sport that has become a global phenomenon, was invented by Dr. James Naismith "
-    #     "in December 1891. Naismith, a physical education instructor, created the game as a way to keep "
-    #     "his students active indoors during the harsh winters in Springfield, Massachusetts. Using a soccer "
-    #     "ball and two peach baskets, he developed a game with 13 basic rules. The objective was simple: score "
-    #     "by shooting the ball into the opposing team's basket. From these humble beginnings, basketball has "
-    #     "evolved into a sophisticated sport with a rich history and a profound impact on culture and society. "
-    #     "\n"
-    #     "In the early 20th century, basketball rapidly gained popularity in the United States. The formation "
-    #     "of the National Basketball Association (NBA) in 1946 marked a significant milestone, providing a "
-    #     "professional platform for the sport. The NBA facilitated the rise of basketball as a major spectator sport, "
-    #     "attracting millions of fans with its high-flying dunks, precise shooting, and strategic gameplay. Players like "
-    #     "Wilt Chamberlain, Bill Russell, and later, Michael Jordan, became household names, elevating the sport's status "
-    #     "and inspiring countless young athletes around the world."
-    #     "\n"
-    #     "Basketball's influence extends beyond the court. It has become a cultural force, impacting fashion, music, and "
-    #     "lifestyle. The \"streetball\" culture, "
-    #     )
-
-    watermark_processor = generate(input_text, args, model, tokenizer)
+    detected_topics = llm_topic_extraction(input_text)
 
     print(f"Prompt:\n {input_text}")
 
     redecoded_input, truncation_warning, decoded_output_without_watermark, decoded_output_with_watermark = generate(
         input_text, 
+        detected_topics,
         args, 
         model=model, 
         tokenizer=tokenizer
@@ -218,13 +236,3 @@ if __name__ == '__main__':
     print(f"Output without watermark:\n {decoded_output_without_watermark}\n")
 
     print(f"Output with watermark:\n {decoded_output_with_watermark}\n")
-
-    # tokenized_input = tokenizer(input_text, return_tensors='pt').to(model.device)
-
-    # output_tokens = model.generate(**tokenized_input, logits_processor=LogitsProcessorList([watermark_processor]))
-
-    # output_tokens = output_tokens[:,tokenized_input["input_ids"].shape[-1]:]
-
-    # output_text = tokenizer.batch_decode(output_tokens, skip_special_tokens=True)[0]
-
-    # print(f"Generated Text:\n {output_text}")
