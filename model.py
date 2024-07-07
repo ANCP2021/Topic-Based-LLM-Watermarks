@@ -1,5 +1,5 @@
-from topic_watermark_processor import TopicWatermarkLogitsProcessor
-from lmw.extended_watermark_processor import WatermarkLogitsProcessor
+from topic_watermark_processor import TopicWatermarkLogitsProcessor, TopicWatermarkDetector
+from watermark_processor import WatermarkLogitsProcessor, WatermarkDetector
 from transformers import (
         AutoTokenizer,
         AutoModelForSeq2SeqLM,
@@ -9,6 +9,9 @@ from transformers import (
 import torch
 from functools import partial
 from topic_extractions import llm_topic_extraction
+from pprint import pprint
+
+DEBUG = 1
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -173,6 +176,78 @@ def generate(prompt, detected_topics, args, model=None, tokenizer=None):
             decoded_output_with_watermark,
     ) 
 
+def format_names(s):
+    """Format names for the gradio demo interface"""
+    s=s.replace("num_tokens_scored","Tokens Counted (T)")
+    s=s.replace("num_green_tokens","# Tokens in Greenlist")
+    s=s.replace("green_fraction","Fraction of T in Greenlist")
+    s=s.replace("z_score","z-score")
+    s=s.replace("p_value","p value")
+    s=s.replace("prediction","Prediction")
+    s=s.replace("confidence","Confidence")
+    return s
+
+def list_format_scores(score_dict, detection_threshold):
+    """Format the detection metrics into a gradio dataframe input format"""
+    lst_2d = []
+    # lst_2d.append(["z-score threshold", f"{detection_threshold}"])
+    for k,v in score_dict.items():
+        if k=='green_fraction': 
+            lst_2d.append([format_names(k), f"{v:.1%}"])
+        elif k=='confidence': 
+            lst_2d.append([format_names(k), f"{v:.3%}"])
+        elif isinstance(v, float): 
+            lst_2d.append([format_names(k), f"{v:.3g}"])
+        elif isinstance(v, bool):
+            lst_2d.append([format_names(k), ("Watermarked" if v else "Human/Unwatermarked")])
+        else: 
+            lst_2d.append([format_names(k), f"{v}"])
+    if "confidence" in score_dict:
+        lst_2d.insert(-2,["z-score Threshold", f"{detection_threshold}"])
+    else:
+        lst_2d.insert(-1,["z-score Threshold", f"{detection_threshold}"])
+    return lst_2d
+
+def detect(input_text, args, device=None, tokenizer=None):
+    """Instantiate the WatermarkDetection object and call detect on
+        the input text returning the scores and outcome of the test"""
+    
+    if args['is_topic']:
+        detected_topics = llm_topic_extraction(input_text)
+        print(f"FInished detected topics for generated text: {detected_topics}")
+        watermark_detector = TopicWatermarkDetector(vocab=list(tokenizer.get_vocab().values()),
+                                            gamma=args['gamma'],
+                                            seeding_scheme=args['seeding_scheme'],
+                                            device=device,
+                                            tokenizer=tokenizer,
+                                            z_threshold=args['detection_z_threshold'],
+                                            normalizers=args['normalizers'],
+                                            ignore_repeated_bigrams=args['ignore_repeated_bigrams'],
+                                            select_green_tokens=args['select_green_tokens'],
+                                            topic_token_mapping=args['topic_token_mapping'])
+    else:
+        watermark_detector = WatermarkDetector(vocab=list(tokenizer.get_vocab().values()),
+                                            gamma=args['gamma'],
+                                            seeding_scheme=args['seeding_scheme'],
+                                            device=device,
+                                            tokenizer=tokenizer,
+                                            z_threshold=args['detection_z_threshold'],
+                                            normalizers=args['normalizers'],
+                                            ignore_repeated_bigrams=args['ignore_repeated_bigrams'],
+                                            select_green_tokens=args['select_green_tokens'])
+
+    if len(input_text)-1 > watermark_detector.min_prefix_len:
+        if args['is_topic']:
+            score_dict = watermark_detector.detect(input_text, topics=detected_topics)
+        else:
+            score_dict = watermark_detector.detect(input_text)
+
+        output = list_format_scores(score_dict, watermark_detector.z_threshold)
+    else:
+        output = [["Error","string too short to compute metrics"]]
+        output += [["",""] for _ in range(6)]
+    return output
+
 if __name__ == '__main__':
 
     args['normalizers'] = (args['normalizers'].split(",") if args['normalizers'] else [])
@@ -221,7 +296,12 @@ if __name__ == '__main__':
         "lifestyle. The \"streetball\" culture, "
         )
 
-    detected_topics = llm_topic_extraction(input_text)
+    if args['is_topic']:
+        detected_topics = llm_topic_extraction(input_text)
+    else:
+        detected_topics = []
+
+    if DEBUG: print(f"Topic extraction is finished for watermarking: {detected_topics}")
 
     print(f"Prompt:\n {input_text}")
 
@@ -233,6 +313,39 @@ if __name__ == '__main__':
         tokenizer=tokenizer
     )
 
-    print(f"Output without watermark:\n {decoded_output_without_watermark}\n")
+    if DEBUG: print("Decoding with and without watermarkings are finished")
 
-    print(f"Output with watermark:\n {decoded_output_with_watermark}\n")
+
+    without_watermark_detection_result = detect(decoded_output_without_watermark, 
+                                                args, 
+                                                device=device, 
+                                                tokenizer=tokenizer)
+    if DEBUG: print("Finished without watermark detection")
+
+    with_watermark_detection_result = detect(decoded_output_with_watermark, 
+                                                args, 
+                                                device=device, 
+                                                tokenizer=tokenizer)
+    if DEBUG: print("Finished with watermark detection")
+
+
+    print("#########################################")
+    print("Output without watermark:")
+    print(decoded_output_without_watermark)
+    print(("#########################################"))
+    print(f"Detection result @ {args['detection_z_threshold']}:")
+    pprint(without_watermark_detection_result)
+    print(("#########################################"))
+
+    print(("#########################################"))
+    print("Output with watermark:")
+    print(decoded_output_with_watermark)
+    print(("#########################################"))
+    print(f"Detection result @ {args['detection_z_threshold']}:")
+    pprint(with_watermark_detection_result)
+    print(("#########################################"))
+
+
+    # print(f"Output without watermark:\n {decoded_output_without_watermark}\n")
+
+    # print(f"Output with watermark:\n {decoded_output_with_watermark}\n")

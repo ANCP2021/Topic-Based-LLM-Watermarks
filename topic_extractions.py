@@ -114,12 +114,28 @@ def llm_topic_extraction(input_text):
 
 
 if __name__ == "__main__":
-    with open('input_prompt.txt', 'r') as file:
-        input_prompt = file.read()
+    input_text = (
+        "Basketball, a sport that has become a global phenomenon, was invented by Dr. James Naismith "
+        "in December 1891. Naismith, a physical education instructor, created the game as a way to keep "
+        "his students active indoors during the harsh winters in Springfield, Massachusetts. Using a soccer "
+        "ball and two peach baskets, he developed a game with 13 basic rules. The objective was simple: score "
+        "by shooting the ball into the opposing team's basket. From these humble beginnings, basketball has "
+        "evolved into a sophisticated sport with a rich history and a profound impact on culture and society. "
+        "\n"
+        "In the early 20th century, basketball rapidly gained popularity in the United States. The formation "
+        "of the National Basketball Association (NBA) in 1946 marked a significant milestone, providing a "
+        "professional platform for the sport. The NBA facilitated the rise of basketball as a major spectator sport, "
+        "attracting millions of fans with its high-flying dunks, precise shooting, and strategic gameplay. Players like "
+        "Wilt Chamberlain, Bill Russell, and later, Michael Jordan, became household names, elevating the sport's status "
+        "and inspiring countless young athletes around the world."
+        "\n"
+        "Basketball's influence extends beyond the court. It has become a cultural force, impacting fashion, music, and "
+        "lifestyle. The \"streetball\" culture, "
+        )
 
     num_topics = 3
 
-    lda_model = lda(input_prompt, num_topics)
-    
-    topics = llm_topic_extraction(input_prompt)
+    lda_model = lda(input_text, num_topics)
+
+    topics = llm_topic_extraction(input_text)
 
