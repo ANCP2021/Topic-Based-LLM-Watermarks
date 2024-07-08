@@ -25,25 +25,26 @@ args = {
     # 'load_fp16' : True,
     'load_fp16' : False,
     'prompt_max_length': None, 
-    'max_new_tokens': 200, 
+    'max_new_tokens': 170, 
     'generation_seed': 123, 
     'use_sampling': True, 
     'n_beams': 1, 
     'sampling_temp': 0.7, 
     'use_gpu': True, 
     'seeding_scheme': 'simple_1', 
-    'gamma': 0.25, 
-    'delta': 2.0, 
+    'gamma': 0.50, 
+    'delta': 3.5, 
     'normalizers': '', 
     'ignore_repeated_bigrams': False, 
-    'detection_z_threshold': 4.0, 
+    'detection_z_threshold': 2.0, 
     'select_green_tokens': True,
     'skip_model_load': False,
     'seed_separately': True,
-    'is_topic': True,
+    'is_topic': False,
     'topic_token_mapping': {
-        "animals": list(range(5000)),
-        "sports": list(range(5000, 10000)),
+        "sports": list(range(22000)),
+        "animals": list(range(22000, 44000)),
+        "turtles": list(range(44000, 66000)),
         # Add more topics and corresponding tokens as needed
     },
     'detected_topic': "",
@@ -122,11 +123,7 @@ def generate(prompt, detected_topics, args, model=None, tokenizer=None):
     generate_without_watermark = partial(
         model.generate,
         **gen_kwargs
-    )
-
-    # Updated generate_with_watermark to pass input_text to the processor
-    # def logits_processor_with_input(input_ids, scores):
-    #     return watermark_processor(input_ids, scores, prompt)
+    ) 
 
     # generate with watermark using LogitsProcessorList
     generate_with_watermark = partial(
@@ -187,33 +184,43 @@ def format_names(s):
     s=s.replace("confidence","Confidence")
     return s
 
-def list_format_scores(score_dict, detection_threshold):
+def list_format_scores(score_dicts, detection_threshold):
     """Format the detection metrics into a gradio dataframe input format"""
     lst_2d = []
     # lst_2d.append(["z-score threshold", f"{detection_threshold}"])
-    for k,v in score_dict.items():
-        if k=='green_fraction': 
-            lst_2d.append([format_names(k), f"{v:.1%}"])
-        elif k=='confidence': 
-            lst_2d.append([format_names(k), f"{v:.3%}"])
-        elif isinstance(v, float): 
-            lst_2d.append([format_names(k), f"{v:.3g}"])
-        elif isinstance(v, bool):
-            lst_2d.append([format_names(k), ("Watermarked" if v else "Human/Unwatermarked")])
-        else: 
-            lst_2d.append([format_names(k), f"{v}"])
-    if "confidence" in score_dict:
-        lst_2d.insert(-2,["z-score Threshold", f"{detection_threshold}"])
-    else:
-        lst_2d.insert(-1,["z-score Threshold", f"{detection_threshold}"])
+    if isinstance(score_dicts, dict):  # For backward compatibility if a single dict is passed
+        score_dicts = [score_dicts]
+
+    for score_dict in score_dicts:
+        topic_scores = []    
+        for k,v in score_dict.items():
+            if k=='green_fraction': 
+                topic_scores.append([format_names(k), f"{v:.1%}"])
+            elif k=='confidence': 
+                topic_scores.append([format_names(k), f"{v:.3%}"])
+            elif isinstance(v, float): 
+                topic_scores.append([format_names(k), f"{v:.3g}"])
+            elif isinstance(v, bool):
+                topic_scores.append([format_names(k), ("Watermarked" if v else "Human/Unwatermarked")])
+            else: 
+                topic_scores.append([format_names(k), f"{v}"])
+
+        if "confidence" in score_dict:
+            topic_scores.insert(-2,["z-score Threshold", f"{detection_threshold}"])
+        else:
+            topic_scores.insert(-1,["z-score Threshold", f"{detection_threshold}"])
+
+    lst_2d.extend(topic_scores)
+    lst_2d.append([])
+
     return lst_2d
 
-def detect(input_text, args, device=None, tokenizer=None):
+def detect(original_prompt, input_text, args, device=None, tokenizer=None):
     """Instantiate the WatermarkDetection object and call detect on
         the input text returning the scores and outcome of the test"""
     
     if args['is_topic']:
-        detected_topics = llm_topic_extraction(input_text)
+        detected_topics = llm_topic_extraction(original_prompt)
         print(f"FInished detected topics for generated text: {detected_topics}")
         watermark_detector = TopicWatermarkDetector(vocab=list(tokenizer.get_vocab().values()),
                                             gamma=args['gamma'],
@@ -238,7 +245,7 @@ def detect(input_text, args, device=None, tokenizer=None):
 
     if len(input_text)-1 > watermark_detector.min_prefix_len:
         if args['is_topic']:
-            score_dict = watermark_detector.detect(input_text, topics=detected_topics)
+            score_dict = watermark_detector.detect(input_text, detected_topics=detected_topics)
         else:
             score_dict = watermark_detector.detect(input_text)
 
@@ -278,22 +285,21 @@ if __name__ == '__main__':
     # )
 
     input_text = (
-        "Basketball, a sport that has become a global phenomenon, was invented by Dr. James Naismith "
-        "in December 1891. Naismith, a physical education instructor, created the game as a way to keep "
-        "his students active indoors during the harsh winters in Springfield, Massachusetts. Using a soccer "
-        "ball and two peach baskets, he developed a game with 13 basic rules. The objective was simple: score "
-        "by shooting the ball into the opposing team's basket. From these humble beginnings, basketball has "
-        "evolved into a sophisticated sport with a rich history and a profound impact on culture and society. "
-        "\n"
-        "In the early 20th century, basketball rapidly gained popularity in the United States. The formation "
-        "of the National Basketball Association (NBA) in 1946 marked a significant milestone, providing a "
-        "professional platform for the sport. The NBA facilitated the rise of basketball as a major spectator sport, "
-        "attracting millions of fans with its high-flying dunks, precise shooting, and strategic gameplay. Players like "
-        "Wilt Chamberlain, Bill Russell, and later, Michael Jordan, became household names, elevating the sport's status "
-        "and inspiring countless young athletes around the world."
-        "\n"
-        "Basketball's influence extends beyond the court. It has become a cultural force, impacting fashion, music, and "
-        "lifestyle. The \"streetball\" culture, "
+        "Sports have been an integral part of human culture for centuries, serving as a means of entertainment, "
+        "physical fitness, and social interaction. They are not merely games but vital activities that contribute "
+        "to the holistic development of individuals and communities. The significance of sports transcends the boundaries "
+        "of competition, impacting physical health, mental well-being, social cohesion, and even economic growth.\n"
+        "Engaging in sports is one of the most effective ways to maintain physical health. Regular participation in physical "
+        "activities helps in the prevention of chronic diseases such as obesity, cardiovascular diseases, diabetes, and hypertension. "
+        "Sports improve cardiovascular fitness, strengthen muscles, enhance flexibility, and boost overall stamina. For children "
+        "and adolescents, sports are crucial for developing healthy growth patterns and preventing lifestyle-related diseases "
+        "later in life.\n"
+        "The mental health benefits of sports are equally profound. Physical activity triggers the release of endorphins, "
+        "which are natural mood lifters. This can help reduce stress, anxiety, and depression. Sports also improve cognitive "
+        "function, enhancing concentration, memory, and learning abilities. The discipline and focus required in sports "
+        "can translate into improved academic and professional performance, fostering a sense of accomplishment and boosting self-esteem.\n"
+        "Sports serve as a powerful tool for social integration. They bring people together, fostering a sense of community and belonging. "
+        "Team sports, in particular, teach essential life skills such as teamwork, leadership, communication, and cooperation. These skills are"
         )
 
     if args['is_topic']:
@@ -315,14 +321,17 @@ if __name__ == '__main__':
 
     if DEBUG: print("Decoding with and without watermarkings are finished")
 
+    input_prompt = input_text + decoded_output_without_watermark
 
-    without_watermark_detection_result = detect(decoded_output_without_watermark, 
+    without_watermark_detection_result = detect(input_prompt, decoded_output_without_watermark, 
                                                 args, 
                                                 device=device, 
                                                 tokenizer=tokenizer)
     if DEBUG: print("Finished without watermark detection")
 
-    with_watermark_detection_result = detect(decoded_output_with_watermark, 
+    input_prompt = input_text + decoded_output_with_watermark
+
+    with_watermark_detection_result = detect(input_prompt, decoded_output_with_watermark, 
                                                 args, 
                                                 device=device, 
                                                 tokenizer=tokenizer)

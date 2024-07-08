@@ -92,7 +92,7 @@ def llm_topic_extraction(input_text):
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForCausalLM.from_pretrained(model_name)
 
-    prompt = f"Extract main topics from the following text:\n\n{input_text}\n\nTopics:"
+    prompt = f"Extract main topics from the following text. Only format topics that are one word. \nHere is the text:\n\n{input_text}\n\nTopics:"
 
     inputs = tokenizer(prompt, return_tensors="pt")
 
@@ -109,6 +109,7 @@ def llm_topic_extraction(input_text):
     # Extract the topics from the output text
     topics_start = output_text.find("Topics:") + len("Topics:")
     topics_text = output_text[topics_start:].strip().split(', ')
+    topics_text = [x.lower() for x in topics_text]
 
     return topics_text
 
