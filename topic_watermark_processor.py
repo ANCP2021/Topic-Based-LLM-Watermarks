@@ -239,12 +239,6 @@ class TopicWatermarkDetector(WatermarkBase):
         green_token_count = sum(1 for token in input_ids if token in global_greenlist_ids)
         red_token_count = sum(1 for token in input_ids if token in global_redlist_ids)
 
-        print(f"Detected Topic: {detected_topic}")
-        print(f"Green Tokens: {global_greenlist_ids[:10]}")  # Print first 10 for brevity
-        print(f"Input Tokens: {input_ids.tolist()[:10]}")  # Print first 10 for brevity
-        print(f"Green Token Count: {green_token_count}")
-        print(f"Red Token Count: {red_token_count}")
-
         return green_token_count, red_token_count, len(input_ids)
 
     def _score_sequence(

@@ -10,6 +10,10 @@ import torch
 from functools import partial
 from topic_extractions import llm_topic_extraction
 from pprint import pprint
+import random
+import matplotlib.pyplot as plt
+import textstat
+
 
 DEBUG = 1
 
@@ -32,7 +36,7 @@ args = {
     'sampling_temp': 0.7, 
     'use_gpu': True, 
     'seeding_scheme': 'simple_1', 
-    'gamma': 0.50, 
+    'gamma': 0.70, 
     'delta': 3.5, 
     'normalizers': '', 
     'ignore_repeated_bigrams': False, 
@@ -40,7 +44,7 @@ args = {
     'select_green_tokens': True,
     'skip_model_load': False,
     'seed_separately': True,
-    'is_topic': False,
+    'is_topic': True,
     'topic_token_mapping': {
         "sports": list(range(22000)),
         "animals": list(range(22000, 44000)),
@@ -231,7 +235,8 @@ def detect(original_prompt, input_text, args, device=None, tokenizer=None):
                                             normalizers=args['normalizers'],
                                             ignore_repeated_bigrams=args['ignore_repeated_bigrams'],
                                             select_green_tokens=args['select_green_tokens'],
-                                            topic_token_mapping=args['topic_token_mapping'])
+                                            topic_token_mapping=args['topic_token_mapping'],
+                                            )
     else:
         watermark_detector = WatermarkDetector(vocab=list(tokenizer.get_vocab().values()),
                                             gamma=args['gamma'],
@@ -254,6 +259,81 @@ def detect(original_prompt, input_text, args, device=None, tokenizer=None):
         output = [["Error","string too short to compute metrics"]]
         output += [["",""] for _ in range(6)]
     return output
+
+
+def modify_text(text, n_edits, edit_type='insert'):
+    words = text.split()
+    for _ in range(n_edits):
+        if edit_type == 'insert':
+            pos = random.randint(0, len(words))
+            words.insert(pos, random.choice(words))
+        elif edit_type == 'delete' and len(words) > 1:
+            pos = random.randint(0, len(words) - 1)
+            words.pop(pos)
+        elif edit_type == 'modify':
+            pos = random.randint(0, len(words) - 1)
+            words[pos] = random.choice(words)
+    return ' '.join(words)
+
+def analyze_robustness(original_prompt, output, args, device, tokenizer, num_edits_list, edit_type='insert'):
+    green_fractions = []
+    z_scores = []
+    readability_scores = []
+
+
+    for n_edits in num_edits_list:
+        modified_output = modify_text(output, n_edits, edit_type)
+        detection_result = detect(original_prompt, modified_output, args, device, tokenizer)
+        for item in detection_result:
+            if len(item) > 1:
+                if item[0] == 'scores':
+                    # Extracting 'green_fraction' and 'z_score' from the string
+                    score_dict_str = item[1]
+                    score_dict = eval(score_dict_str)  # Evaluate the string as a dictionary
+
+                    # Assign values to variables
+                    green_fractions.append(score_dict.get('green_fraction'))
+                    z_scores.append(score_dict.get('z_score'))
+        # scores = detection_result[0][0][1]
+        # scores_dict = eval(scores)
+        # green_fractions.append(scores_dict['green_fraction'])
+        # z_scores.append(scores_dict['z_score'])
+        readability_score = textstat.flesch_reading_ease(modified_output)
+        readability_scores.append(readability_score)
+
+    return green_fractions, z_scores, readability_scores
+
+def plot_robustness(num_edits_list, green_fractions, z_scores, readability_scores):
+    fig, ax1 = plt.subplots()
+
+    # Plotting Green Fraction
+    color = 'tab:blue'
+    ax1.set_xlabel('Number of Edits')
+    ax1.set_ylabel('Green Fraction', color=color)
+    ax1.plot(num_edits_list, green_fractions, color=color, label='Green Fraction')
+    ax1.tick_params(axis='y', labelcolor=color)
+
+    # Adding another y-axis for Z-Score
+    ax2 = ax1.twinx()
+    color = 'tab:red'
+    ax2.set_ylabel('Z-Score', color=color)
+    ax2.plot(num_edits_list, z_scores, color=color, label='Z-Score')
+    ax2.tick_params(axis='y', labelcolor=color)
+
+    # Adding another y-axis for readability scores
+    ax3 = ax1.twinx()
+    ax3.spines["right"].set_position(("axes", 1.15))  # Offset the right spine of ax3
+    color = 'tab:green'
+    ax3.set_ylabel('Text Quality', color=color)
+    ax3.plot(num_edits_list, readability_scores, color=color, label='Text Quality')
+    ax3.tick_params(axis='y', labelcolor=color)
+
+    fig.tight_layout()
+    plt.title('')
+    plt.legend(loc='upper left')
+    plt.show()
+
+
 
 if __name__ == '__main__':
 
@@ -319,6 +399,19 @@ if __name__ == '__main__':
         tokenizer=tokenizer
     )
 
+    # decoded_output_without_watermark =  (
+    #     " especially important for children, especially those from disadvantaged backgrounds, who are less likely to have the opportunity to participate in sports."
+    #     "While sports are an essential part of our lives, their impact is not enough to maintain a healthy lifestyle. The Global Sport and Well-Being Report, conducted by the World Health Organization (WHO), indicates that one in six people live with the burden of chronic diseases such as diabetes, cardiovascular disease, obesity, and hypertension."
+    #     "The impact of these diseases is felt across the world, and they are largely preventable. The WHO estimates that 1.7 billion people are overweight or obese and, by 2030, the number of overweight and obese people in the world will increase by 230 million people. The WHO estimates that, in the next decade, the number of overweight and obese people will increase by 526 million people."
+    #     "This"
+    # )   
+
+    # decoded_output_with_watermark = (
+    #     " particularly important when it comes to maintaining healthy and strong friendships. These activities also foster a sense of community, serving to strengthen ties between different age groups. They foster positive relationships between individuals, helping to prevent aggression and bullying among young children, adolescents, and young adults."
+    #     "Gender and ethnicity, however, also affect athletes. Women, particularly, experience a range of negative experiences during sports training and competition. These experiences include harassment, bullying, and violence. These experiences affect athletes of different gender, ethnicity, and age. Women, particularly, experience a range of negative experiences during sports training and competition. These experiences include harassment, bullying, and violence. These experiences affect athletes of different gender, ethnicity, and age."
+    #     "This situation, however, is changing. Women now make up a growing number of sports athletes and their involvement and involvement increase with the rise "
+    # )
+
     if DEBUG: print("Decoding with and without watermarkings are finished")
 
     input_prompt = input_text + decoded_output_without_watermark
@@ -354,7 +447,39 @@ if __name__ == '__main__':
     pprint(with_watermark_detection_result)
     print(("#########################################"))
 
+    
+    num_edits_list = [0, 5, 10, 15, 20, 25, 30]
+    input_prompt = input_text + decoded_output_with_watermark
 
-    # print(f"Output without watermark:\n {decoded_output_without_watermark}\n")
+    green_fractions, z_scores, readability_scores = analyze_robustness(
+        input_prompt,
+        decoded_output_with_watermark, 
+        args, 
+        device, 
+        tokenizer, 
+        num_edits_list, 
+        edit_type='insert'
+    )
+    plot_robustness(num_edits_list, green_fractions, z_scores, readability_scores)
 
-    # print(f"Output with watermark:\n {decoded_output_with_watermark}\n")
+    green_fractions, z_scores, readability_scores = analyze_robustness(
+        input_prompt,
+        decoded_output_with_watermark, 
+        args, 
+        device, 
+        tokenizer, 
+        num_edits_list, 
+        edit_type='modify'
+    )
+    plot_robustness(num_edits_list, green_fractions, z_scores, readability_scores)
+
+    green_fractions, z_scores, readability_scores = analyze_robustness(
+        input_prompt,
+        decoded_output_with_watermark, 
+        args, 
+        device, 
+        tokenizer, 
+        num_edits_list, 
+        edit_type='delete'
+    )
+    plot_robustness(num_edits_list, green_fractions, z_scores, readability_scores)
