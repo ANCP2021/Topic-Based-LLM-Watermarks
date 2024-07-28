@@ -86,14 +86,10 @@ if __name__ == '__main__':
         "Team sports, in particular, teach essential life skills such as teamwork, leadership, communication, and cooperation. These skills are"
     )
 
-    # nonWatermarkedLLM = NonWatermarkedLLM(model_name=args['model_name_or_path'])
-    # input_text = nonWatermarkedLLM.generate_response(input_text)
-
     args['normalizers'] = (args['normalizers'].split(",") if args['normalizers'] else [])
 
     model, tokenizer = load_model(args)
 
-    
     if args['is_topic']:
         detected_topics = llm_topic_extraction(input_text)
     else:
@@ -103,7 +99,6 @@ if __name__ == '__main__':
 
     print(f"Prompt:\n {input_text}")
 
-    # input_text = f"Rewrite the following text:\n '{input_text}'"
     redecoded_input, truncation_warning, decoded_output_without_watermark, decoded_output_with_watermark = generate(
         input_text, 
         detected_topics,

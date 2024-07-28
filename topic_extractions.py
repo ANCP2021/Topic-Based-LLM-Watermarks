@@ -11,27 +11,16 @@ from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer
 )
-try:
-    _create_unverified_https_context = ssl._create_unverified_context
-except AttributeError:
-    pass
-else:
-    ssl._create_default_https_context = _create_unverified_https_context
-
-nltk.download('punkt')
-nltk.download('wordnet')
-nltk.download('stopwords')
-nltk.download('averaged_perceptron_tagger')
 
 # POS tags for lemmatization
-def wordnet_pos_tags(treebank_tag):
-    if treebank_tag.startswith('J'):
+def wordnet_pos_tags(pos_tag):
+    if pos_tag.startswith('J'):
         return wordnet.ADJ
-    elif treebank_tag.startswith('V'):
+    elif pos_tag.startswith('V'):
         return wordnet.VERB
-    elif treebank_tag.startswith('N'):
+    elif pos_tag.startswith('N'):
         return wordnet.NOUN
-    elif treebank_tag.startswith('R'):
+    elif pos_tag.startswith('R'):
         return wordnet.ADV
     else:
         return wordnet.NOUN
@@ -75,7 +64,7 @@ def lda(input, num_topics):
     corpus = [dictionary.doc2bow(text) for text in texts]
 
     # train LDA model
-    lda_model = LdaModel(corpus=corpus, id2word=dictionary, random_state=100, chunksize=20, num_topics=7, passes=50, iterations=100)
+    lda_model = LdaModel(corpus=corpus, id2word=dictionary, random_state=100, chunksize=20, num_topics=num_topics, passes=50, iterations=100)
 
     return lda_model
 
@@ -135,8 +124,21 @@ if __name__ == "__main__":
         )
 
     num_topics = 3
+    model_type = 'llm'
 
-    lda_model = lda(input_text, num_topics)
+    if 'llm':
+        topics = llm_topic_extraction(input_text)
+        print(topics)
+    else:
+        try:
+            _create_unverified_https_context = ssl._create_unverified_context
+        except AttributeError:
+            pass
+        else:
+            ssl._create_default_https_context = _create_unverified_https_context
 
-    topics = llm_topic_extraction(input_text)
-
+        nltk.download('punkt')
+        nltk.download('wordnet')
+        nltk.download('stopwords')
+        nltk.download('averaged_perceptron_tagger')
+        lda_model = lda(input_text, num_topics)

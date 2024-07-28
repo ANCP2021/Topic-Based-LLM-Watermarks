@@ -1,117 +1,110 @@
-# TODO Baseline attacks, insertion, substitution, deletion
+"""
+Baseline attack consists of the insertion, substitution, and deletion of text for a given output
+sequence. The attacker selects a single or a combination of techniques with the objective to diminish 
+detection accuracy.
+"""
+import random
+from nltk.corpus import wordnet
+from nltk import pos_tag
+from utils.utils import is_important_word
 
+class BaselineAttack:
+    def __init__(self):
+        super().__init__()
+        
+    # Synonym helper function for substitution attack
+    def get_synonym(self, word):
+        synonyms = set()
+        
+        for syn in wordnet.synsets(word):
+            for lemma in syn.lemmas():
+                synonyms.add(lemma.name())
 
+        if word in synonyms:
+            synonyms.remove(word)  
+            
+        return list(synonyms)
 
-def modify_text(text, n_edits, edit_type='insert'):
-    words = text.split()
-    for _ in range(n_edits):
-        if edit_type == 'insert':
-            pos = random.randint(0, len(words))
-            words.insert(pos, random.choice(words))
-        elif edit_type == 'delete' and len(words) > 1:
-            pos = random.randint(0, len(words) - 1)
-            words.pop(pos)
-        elif edit_type == 'modify':
-            pos = random.randint(0, len(words) - 1)
-            words[pos] = random.choice(words)
-    return ' '.join(words)
+    # Modify text randomly through insertion, deletion, and substitution
+    def modify_text(self, text, n_edits, edit_type='insert'):
+        words = text.split()
 
-def analyze_robustness(original_prompt, output, args, device, tokenizer, num_edits_list, edit_type='insert'):
-    green_fractions = []
-    z_scores = []
-    readability_scores = []
+        for _ in range(n_edits):
+            if edit_type == 'insert':
+                pos = random.randint(0, len(words))
+                words.insert(pos, random.choice(words))
+            elif edit_type == 'delete' and len(words) > 1:
+                pos = random.randint(0, len(words) - 1)
+                words.pop(pos)
+            elif edit_type == 'substitute':
+                pos = random.randint(0, len(words) - 1)
+                words[pos] = random.choice(words)
 
+        return ' '.join(words)
 
-    for n_edits in num_edits_list:
-        modified_output = modify_text(output, n_edits, edit_type)
-        detection_result = detect(original_prompt, modified_output, args, device, tokenizer)
-        for item in detection_result:
-            if len(item) > 1:
-                if item[0] == 'scores':
-                    # Extracting 'green_fraction' and 'z_score' from the string
-                    score_dict_str = item[1]
-                    score_dict = eval(score_dict_str)  # Evaluate the string as a dictionary
+    # Modify text under the assumption that there is a watermark, important words are the target
+    # choosing more important words (excluding 'the', 'and', etc.) randomly 
+    def inference_modify_text(self, text, n_edits, edit_type='insert'):
+        words = text.split()
+        tagged_words = pos_tag(words) 
+        important_words = [word for word, tag in tagged_words if is_important_word(tag)]
+        
+        for _ in range(n_edits):
+            if edit_type == 'insert':
+                pos = random.randint(0, len(words))
+                word_to_insert = random.choice(important_words)
+                words.insert(pos, word_to_insert)
+            elif edit_type == 'delete' and len(important_words) > 0:
+                word_to_delete = random.choice(important_words)
+                if word_to_delete in words:
+                    pos = words.index(word_to_delete)
+                    words.pop(pos)
+            elif edit_type == 'substitute':
+                pos = random.randint(0, len(words) - 1)
+                word = words[pos]
+                synonyms = self.get_synonym(word)
+                if synonyms:
+                    new_word = random.choice(synonyms)
+                    words[pos] = new_word
 
-                    # Assign values to variables
-                    green_fractions.append(score_dict.get('green_fraction'))
-                    z_scores.append(score_dict.get('z_score'))
-        # scores = detection_result[0][0][1]
-        # scores_dict = eval(scores)
-        # green_fractions.append(scores_dict['green_fraction'])
-        # z_scores.append(scores_dict['z_score'])
-        readability_score = textstat.flesch_reading_ease(modified_output)
-        readability_scores.append(readability_score)
+        return ' '.join(words)
 
-    return green_fractions, z_scores, readability_scores
+    # Combination function for insertion, deletion, and substitution
+    def combination_modify_text(self, text, insertion_n_edits=0, insertion_is_inferenced=False, 
+                                deletion_n_edits=0, deletion_is_inferenced=False, 
+                                substitution_n_edits=0, 
+                                substitution_is_inferenced=False):
+        if insertion_n_edits > 0:
+            if insertion_is_inferenced:
+                text = self.inference_modify_text(text, insertion_n_edits, edit_type='insert')
+            else:
+                text = self.modify_text(text, insertion_n_edits, edit_type='insert')
 
-def plot_robustness(num_edits_list, green_fractions, z_scores, readability_scores):
-    fig, ax1 = plt.subplots()
+        if deletion_n_edits > 0:
+            if deletion_is_inferenced:
+                text = self.inference_modify_text(text, deletion_n_edits, edit_type='delete')
+            else:
+                text = self.modify_text(text, deletion_n_edits, edit_type='delete')
 
-    # Plotting Green Fraction
-    color = 'tab:blue'
-    ax1.set_xlabel('Number of Edits')
-    ax1.set_ylabel('Green Fraction', color=color)
-    ax1.plot(num_edits_list, green_fractions, color=color, label='Green Fraction')
-    ax1.tick_params(axis='y', labelcolor=color)
+        if substitution_n_edits > 0:
+            if substitution_is_inferenced:
+                text = self.inference_modify_text(text, substitution_n_edits, edit_type='substitute')
+            else:
+                text = self.modify_text(text, substitution_n_edits, edit_type='substitute')
 
-    # Adding another y-axis for Z-Score
-    ax2 = ax1.twinx()
-    color = 'tab:red'
-    ax2.set_ylabel('Z-Score', color=color)
-    ax2.plot(num_edits_list, z_scores, color=color, label='Z-Score')
-    ax2.tick_params(axis='y', labelcolor=color)
+        return text
 
-    # Adding another y-axis for readability scores
-    ax3 = ax1.twinx()
-    ax3.spines["right"].set_position(("axes", 1.15))  # Offset the right spine of ax3
-    color = 'tab:green'
-    ax3.set_ylabel('Text Quality', color=color)
-    ax3.plot(num_edits_list, readability_scores, color=color, label='Text Quality')
-    ax3.tick_params(axis='y', labelcolor=color)
-
-    fig.tight_layout()
-    plt.title('')
-    plt.legend(loc='upper left')
-    plt.show()
-
-
-
+# Use Case Example
 if __name__ == '__main__':
-
+    # Hypothetical watermarked text
+    watermarked_text = (
+        "Sports have been an integral part of human culture for centuries, serving as a means of entertainment, "
+        "physical fitness, and social interaction. They are not merely games but vital activities that contribute "
+        "to the holistic development of individuals and communities. The significance of sports transcends the boundaries "
+        "of competition."
+    )
+    # Example of 3 random insertions where there is no assumption of a watermark
+    baseline = BaselineAttack()
+    text = baseline.inference_modify_text(watermarked_text, 3, 'insert')
+    print(text)
     
-
-    num_edits_list = [0, 5, 10, 15, 20, 25, 30]
-    input_prompt = input_text + decoded_output_with_watermark
-
-    green_fractions, z_scores, readability_scores = analyze_robustness(
-        input_prompt,
-        decoded_output_with_watermark, 
-        args, 
-        device, 
-        tokenizer, 
-        num_edits_list, 
-        edit_type='insert'
-    )
-    plot_robustness(num_edits_list, green_fractions, z_scores, readability_scores)
-
-    green_fractions, z_scores, readability_scores = analyze_robustness(
-        input_prompt,
-        decoded_output_with_watermark, 
-        args, 
-        device, 
-        tokenizer, 
-        num_edits_list, 
-        edit_type='modify'
-    )
-    plot_robustness(num_edits_list, green_fractions, z_scores, readability_scores)
-
-    green_fractions, z_scores, readability_scores = analyze_robustness(
-        input_prompt,
-        decoded_output_with_watermark, 
-        args, 
-        device, 
-        tokenizer, 
-        num_edits_list, 
-        edit_type='delete'
-    )
-    plot_robustness(num_edits_list, green_fractions, z_scores, readability_scores)
