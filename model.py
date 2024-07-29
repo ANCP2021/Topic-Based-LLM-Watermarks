@@ -68,7 +68,7 @@ def generate(prompt, detected_topics, args, model=None, tokenizer=None):
             seeding_scheme=args['seeding_scheme'],
             select_green_tokens=args['select_green_tokens']
         )
-
+  
     gen_kwargs = dict(max_new_tokens=args['max_new_tokens'])
 
     if args['use_sampling']:

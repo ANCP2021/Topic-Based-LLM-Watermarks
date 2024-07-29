@@ -1,7 +1,7 @@
 import torch
-from non_watermarked_llm import NonWatermarkedLLM
 from model import load_model, generate, detect
 from topic_extractions import llm_topic_extraction
+from inputs import sports_input, technology_input, animals_input
 from pprint import pprint
 
 DEBUG = 1
@@ -18,7 +18,7 @@ args = {
     # 'load_fp16' : True,
     'load_fp16' : False,
     'prompt_max_length': None, 
-    'max_new_tokens': 170, 
+    'max_new_tokens': 150, 
     'generation_seed': 123, 
     'use_sampling': True, 
     'n_beams': 1, 
@@ -35,56 +35,18 @@ args = {
     'seed_separately': True,
     'is_topic': True,
     'topic_token_mapping': {
-        "sports": list(range(22000)),
-        "animals": list(range(22000, 44000)),
-        "turtles": list(range(44000, 66000)),
+        "sports": list(range(20000)),
+        "animals": list(range(20000, 40000)),
+        "technology": list(range(40000, 60000)),
         # Add more topics and corresponding tokens as needed
     },
     'detected_topic': "",
 }
 
 if __name__ == '__main__':
-
-     # input_text = (
-    #     "The diamondback terrapin or simply terrapin (Malaclemys terrapin) is a "
-    #     "species of turtle native to the brackish coastal tidal marshes of the "
-    #     "Northeastern and southern United States, and in Bermuda.[6] It belongs "
-    #     "to the monotypic genus Malaclemys. It has one of the largest ranges of "
-    #     "all turtles in North America, stretching as far south as the Florida Keys "
-    #     "and as far north as Cape Cod.[7] The name 'terrapin' is derived from the "
-    #     "Algonquian word torope.[8] It applies to Malaclemys terrapin in both "
-    #     "British English and American English. The name originally was used by "
-    #     "early European settlers in North America to describe these brackish-water "
-    #     "turtles that inhabited neither freshwater habitats nor the sea. It retains "
-    #     "this primary meaning in American English.[8] In British English, however, "
-    #     "other semi-aquatic turtle species, such as the red-eared slider, might "
-    #     "also be called terrapins. The common name refers to the diamond pattern "
-    #     "on top of its shell (carapace), but the overall pattern and coloration "
-    #     "vary greatly. The shell is usually wider at the back than in the front, "
-    #     "and from above it appears wedge-shaped. The shell coloring can vary "
-    #     "from brown to grey, and its body color can be grey, brown, yellow, "
-    #     "or white. All have a unique pattern of wiggly, black markings or spots "
-    #     "on their body and head. The diamondback terrapin has large webbed "
-    #     "feet.[9] The species is"
-    # )
-
-    input_text = (
-        "Sports have been an integral part of human culture for centuries, serving as a means of entertainment, "
-        "physical fitness, and social interaction. They are not merely games but vital activities that contribute "
-        "to the holistic development of individuals and communities. The significance of sports transcends the boundaries "
-        "of competition, impacting physical health, mental well-being, social cohesion, and even economic growth.\n"
-        "Engaging in sports is one of the most effective ways to maintain physical health. Regular participation in physical "
-        "activities helps in the prevention of chronic diseases such as obesity, cardiovascular diseases, diabetes, and hypertension. "
-        "Sports improve cardiovascular fitness, strengthen muscles, enhance flexibility, and boost overall stamina. For children "
-        "and adolescents, sports are crucial for developing healthy growth patterns and preventing lifestyle-related diseases "
-        "later in life.\n"
-        "The mental health benefits of sports are equally profound. Physical activity triggers the release of endorphins, "
-        "which are natural mood lifters. This can help reduce stress, anxiety, and depression. Sports also improve cognitive "
-        "function, enhancing concentration, memory, and learning abilities. The discipline and focus required in sports "
-        "can translate into improved academic and professional performance, fostering a sense of accomplishment and boosting self-esteem.\n"
-        "Sports serve as a powerful tool for social integration. They bring people together, fostering a sense of community and belonging. "
-        "Team sports, in particular, teach essential life skills such as teamwork, leadership, communication, and cooperation. These skills are"
-    )
+    input_text = sports_input()
+    # input_text = technology_input()
+    # input_text = animals_input()
 
     args['normalizers'] = (args['normalizers'].split(",") if args['normalizers'] else [])
 
@@ -98,6 +60,7 @@ if __name__ == '__main__':
     if DEBUG: print(f"Topic extraction is finished for watermarking: {detected_topics}")
 
     print(f"Prompt:\n {input_text}")
+
 
     redecoded_input, truncation_warning, decoded_output_without_watermark, decoded_output_with_watermark = generate(
         input_text, 

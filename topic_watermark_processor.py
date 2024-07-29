@@ -48,6 +48,7 @@ class WatermarkBase:
         select_green_tokens: bool = True,
         topic_token_mapping: dict = None,
         detected_topic: str = "",
+        device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     ):
 
         # watermarking parameters
@@ -56,13 +57,18 @@ class WatermarkBase:
         self.gamma = gamma
         self.delta = delta
         self.seeding_scheme = seeding_scheme
-        self.rng = None
+        # self.rng = None
+        self.device = device
+        self.rng = torch.Generator(device=self.device)
         self.hash_key = hash_key
-        self.select_green_tokens = select_green_tokens,
+        self.select_green_tokens = select_green_tokens
         self.topic_token_mapping = topic_token_mapping or {}
         self.detected_topic = detected_topic
 
     def _seed_rng(self, input_ids: torch.LongTensor, seeding_scheme: str = None) -> None:
+        if self.rng is None:
+            self.rng = torch.Generator(device=input_ids.device)
+        
         # can optionally override the seeding scheme,
         # but uses the instance attr by default
         if seeding_scheme is None:
@@ -90,6 +96,11 @@ class WatermarkBase:
         topic_tokens = self.topic_token_mapping.get(self.detected_topic, self.vocab)
         topic_vocab_size = len(topic_tokens)
 
+        # Check if all topic tokens exist in the global vocabulary
+        missing_tokens = [token for token in topic_tokens if token not in self.vocab]
+        if missing_tokens:
+            raise ValueError(f"The following topic tokens are missing from the global vocabulary: {missing_tokens}")
+
         # Size of the green list based on the gamma and V size hyperparameters
         # greenlist_size = int(self.vocab_size * self.gamma)
         greenlist_size = int(topic_vocab_size * self.gamma)
@@ -100,7 +111,7 @@ class WatermarkBase:
 
         if self.select_green_tokens:  # directly
             # Selects the first green list size tokens from the permutations for the green list
-            greenlist_ids = vocab_permutation[:greenlist_size].tolist()  # new
+            greenlist_ids = vocab_permutation[:greenlist_size].tolist() 
         else:  # select green via red
             # Selects the last green list size tokens
             # greenlist_ids = vocab_permutation[(self.vocab_size - greenlist_size) :]  # legacy behavior
