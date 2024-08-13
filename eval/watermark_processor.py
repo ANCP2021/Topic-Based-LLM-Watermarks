@@ -46,9 +46,6 @@ class WatermarkBase:
         seeding_scheme: str = "simple_1",  # mostly unused/always default
         hash_key: int = 15485863,  # just a large prime number to create a rng seed with sufficient bit width
         select_green_tokens: bool = True,
-        topic_token_mapping: dict = None,
-        detected_topic: str = "",
-        device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     ):
 
         # watermarking parameters
@@ -58,17 +55,10 @@ class WatermarkBase:
         self.delta = delta
         self.seeding_scheme = seeding_scheme
         self.rng = None
-        self.device = device
-        self.rng = torch.Generator(device=self.device)
         self.hash_key = hash_key
         self.select_green_tokens = select_green_tokens
-        self.topic_token_mapping = topic_token_mapping or {}
-        self.detected_topic = detected_topic
 
     def _seed_rng(self, input_ids: torch.LongTensor, seeding_scheme: str = None) -> None:
-        if self.rng is None:
-            self.rng = torch.Generator(device=input_ids.device)
-        
         # can optionally override the seeding scheme,
         # but uses the instance attr by default
         if seeding_scheme is None:
@@ -80,9 +70,6 @@ class WatermarkBase:
             # Seed the random number generator using the last token in the input sequence and hash key
             prev_token = input_ids[-1].item()
             self.rng.manual_seed(self.hash_key * prev_token)
-        elif seeding_scheme == "combined":
-            combined_seed = sum(input_ids[-5:].tolist())  
-            self.rng.manual_seed(self.hash_key * combined_seed)
         else: # error for unimplmented seeding 
             raise NotImplementedError(f"Unexpected seeding_scheme: {seeding_scheme}")
         return
@@ -92,29 +79,16 @@ class WatermarkBase:
         # according to the seeding_scheme
         self._seed_rng(input_ids)
 
-        # Use topic-specific token mapping
-        topic_tokens = self.topic_token_mapping.get(self.detected_topic, self.vocab)
-        topic_vocab_size = len(topic_tokens)
-
         # Size of the green list based on the gamma and V size hyperparameters
-        # greenlist_size = int(self.vocab_size * self.gamma)
-        greenlist_size = int(topic_vocab_size * self.gamma)
-
+        greenlist_size = int(self.vocab_size * self.gamma)
         # Generate permutations on the vocabulary
-        # vocab_permutation = torch.randperm(self.vocab_size, device=input_ids.device, generator=self.rng)
-        vocab_permutation = torch.randperm(topic_vocab_size, device=input_ids.device, generator=self.rng)
-
+        vocab_permutation = torch.randperm(self.vocab_size, device=input_ids.device, generator=self.rng)
         if self.select_green_tokens:  # directly
             # Selects the first green list size tokens from the permutations for the green list
-            greenlist_ids = vocab_permutation[:greenlist_size].tolist() 
+            greenlist_ids = vocab_permutation[:greenlist_size]  # new
         else:  # select green via red
             # Selects the last green list size tokens
-            # greenlist_ids = vocab_permutation[(self.vocab_size - greenlist_size) :]  # legacy behavior
-            greenlist_ids = vocab_permutation[(topic_vocab_size - greenlist_size):].tolist()
-
-        # global_greenlist_ids = [self.vocab.index(topic_tokens[idx]) for idx in greenlist_ids]
-
-        # return greenlist_ids
+            greenlist_ids = vocab_permutation[(self.vocab_size - greenlist_size) :]  # legacy behavior
         return greenlist_ids
 
 """
@@ -123,7 +97,7 @@ class WatermarkBase:
     - Calculates a mask for green listed tokens, bias of logtis of green listed tokens, and applies
     the modifications during the forward pass
 """
-class TopicWatermarkLogitsProcessor(WatermarkBase, LogitsProcessor):
+class WatermarkLogitsProcessor(WatermarkBase, LogitsProcessor):
     def __init__(self, *args, **kwargs):
         # Initializes the parent class with the given arguements 
         super().__init__(*args, **kwargs)
@@ -144,6 +118,7 @@ class TopicWatermarkLogitsProcessor(WatermarkBase, LogitsProcessor):
         return scores
 
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+
         # Initialize the random number generator if not set, colocating on the same device as input ids
         if self.rng is None:
             self.rng = torch.Generator(device=input_ids.device)
@@ -172,8 +147,8 @@ class TopicWatermarkLogitsProcessor(WatermarkBase, LogitsProcessor):
     metrics about the watermark detection (number of green tokens, z-scores, p-values)
     - Detectin of watermarks in either raw or pre-tokenized input, normalizing the text and performing
     the detection process returning results
-# """
-class TopicWatermarkDetector(WatermarkBase):
+"""
+class WatermarkDetector(WatermarkBase):
     def __init__(
         self,
         *args,
@@ -296,13 +271,6 @@ class TopicWatermarkDetector(WatermarkBase):
 
         return score_dict
 
-    def _select_topic(self, detected_topics):
-        """Select the first detected topic that is recognized in the topic mappings."""
-        for topic in detected_topics:
-            if topic.lower() in self.topic_token_mapping:
-                return topic.lower()
-        return detected_topics[0] if detected_topics else None
-
     def detect(
         self,
         text: str = None,
@@ -310,7 +278,6 @@ class TopicWatermarkDetector(WatermarkBase):
         return_prediction: bool = True,
         return_scores: bool = True,
         z_threshold: float = None,
-        detected_topics: list[str] = [],
         **kwargs,
     ) -> dict:
 
@@ -339,8 +306,6 @@ class TopicWatermarkDetector(WatermarkBase):
             # try to remove the beginning of sequence token if it's there
             if (self.tokenizer is not None) and (tokenized_text[0] == self.tokenizer.bos_token_id):
                 tokenized_text = tokenized_text[1:]
-
-        self.detected_topic = self._select_topic(detected_topics)
 
         # call score method to evaluate the sequence
         output_dict = {}

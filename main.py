@@ -18,18 +18,18 @@ args = {
     # 'load_fp16' : True,
     'load_fp16' : False,
     'prompt_max_length': None, 
-    'max_new_tokens': 150, 
+    'max_new_tokens': 200, 
     'generation_seed': 123, 
     'use_sampling': True, 
     'n_beams': 1, 
     'sampling_temp': 0.7, 
     'use_gpu': True, 
     'seeding_scheme': 'simple_1', 
-    'gamma': 0.70, 
-    'delta': 3.5, 
+    'gamma': 0.7, 
+    'delta': 2.0, 
     'normalizers': '', 
     'ignore_repeated_bigrams': False, 
-    'detection_z_threshold': 2.0, 
+    'detection_z_threshold': 1.0, 
     'select_green_tokens': True,
     'skip_model_load': False,
     'seed_separately': True,
@@ -44,8 +44,8 @@ args = {
 }
 
 if __name__ == '__main__':
-    input_text = sports_input()
-    # input_text = technology_input()
+    # input_text = sports_input()
+    input_text = technology_input()
     # input_text = animals_input()
 
     args['normalizers'] = (args['normalizers'].split(",") if args['normalizers'] else [])
@@ -60,7 +60,6 @@ if __name__ == '__main__':
     if DEBUG: print(f"Topic extraction is finished for watermarking: {detected_topics}")
 
     print(f"Prompt:\n {input_text}")
-
 
     redecoded_input, truncation_warning, decoded_output_without_watermark, decoded_output_with_watermark = generate(
         input_text, 
