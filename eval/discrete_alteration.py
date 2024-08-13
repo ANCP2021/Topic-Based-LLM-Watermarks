@@ -41,8 +41,8 @@ class DiscreteAlterations:
         else:
             important_words = words
 
-        for _ in range(n_edits):
-            pos = random.randint(0, len(words) - 1)
+        for i in range(n_edits):
+            pos = random.randint(0, len(important_words) - 1)
             word = important_words[pos]
 
             if len(word) > 1:
@@ -76,5 +76,5 @@ if __name__ == '__main__':
     )
     # Example of combination of inserted whitespaces and misspellings, 3 insertions each
     alteration = DiscreteAlterations()
-    text = alteration.combination_modify_text(watermarked_text, whitespace_n_edits=3, misspell_n_edits=3)
+    text = alteration.add_char(watermarked_text, n_edits=20, inference=True)
     print(text)
