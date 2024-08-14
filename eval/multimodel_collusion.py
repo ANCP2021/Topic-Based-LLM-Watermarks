@@ -12,7 +12,8 @@ from transformers import (
     AutoModelForCausalLM, 
     AutoModelForSeq2SeqLM
 )
-from utils.utils import generate, llm_topic_extraction
+from topic_extractions import llm_topic_extraction
+from model import generate
 
 class MultiModelCollusion:
     def __init__(self, models):
