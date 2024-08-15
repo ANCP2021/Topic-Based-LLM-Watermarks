@@ -50,3 +50,26 @@ def animals_input():
         "Animals appear in myths, folklore, and art, serving as symbols of strength, wisdom, and resilience. Protecting and respecting animals not only preserves biodiversity but also upholds "
         "the cultural heritage and values of diverse communities."
     )
+
+def medicine_input():
+    return (
+        "Medicine has been a cornerstone of human advancement for millennia, playing a critical role in enhancing and preserving life. It is not just a field of scientific inquiry, but a vital "
+        "practice that touches every aspect of human existence. The importance of medicine goes beyond the treatment of diseases; it encompasses the promotion of health, the prevention of illnesses, "
+        "and the overall improvement of quality of life. The impact of medicine on society is profound, influencing not only physical well-being but also mental, social, and economic factors.\n"
+        "The advancements in medicine have led to the prevention and cure of many diseases that were once considered fatal. Vaccines, antibiotics, and advanced surgical techniques have dramatically "
+        "increased life expectancy and reduced mortality rates worldwide. Beyond physical health, medicine plays a crucial role in mental health care, providing treatments and therapies that improve "
+        "the quality of life for those with psychological conditions. The field of medicine also drives innovation, with ongoing research leading to new discoveries that continue to push the boundaries "
+        "of what is possible, ultimately contributing to the economic growth and sustainability of healthcare systems around the globe."
+    )
+
+def music_input():
+    return (
+        "Music has been an essential part of human culture for as long as history can trace, serving not only as a form of artistic expression but also as a powerful tool for emotional and social "
+        "connection. It transcends cultural and linguistic boundaries, offering a universal language that resonates with people across the world. The significance of music extends beyond entertainment, "
+        "deeply influencing emotional states, cognitive functions, and even physical health. It is a medium through which individuals can express emotions, tell stories, and connect with others on a "
+        "profound level.\n"
+        "Listening to or creating music can have a multitude of benefits for mental well-being. Music therapy is widely recognized for its ability to reduce stress, alleviate anxiety, and combat "
+        "depression. The rhythms and melodies of music can evoke a range of emotions, from joy to sadness, offering a cathartic experience that can help people process complex feelings. Moreover, "
+        "music enhances cognitive abilities by improving memory, attention, and problem-solving skills. In social contexts, music brings people together, fostering a sense of community and shared "
+        "experience, whether through concerts, festivals, or simply listening with friends."
+    )

@@ -1,21 +1,30 @@
 import torch
 from model import load_model, generate, detect
 from topic_extractions import llm_topic_extraction
-from inputs import sports_input, technology_input, animals_input
+from inputs import sports_input, technology_input, animals_input, medicine_input, music_input
 from pprint import pprint
 
 DEBUG = 1
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def get_token_mappings():
+    total_tokens = 100000
+    topics = ["sports", "animals", "technology", "music", "medicine"]
+
+    # Initialize the mapping dictionary
+    topic_token_mapping = {topic: [] for topic in topics}
+
+    # Distribute the tokens in a staggered manner
+    for i in range(total_tokens):
+        topic_index = i % len(topics)
+        topic = topics[topic_index]
+        topic_token_mapping[topic].append(i)
+    return topic_token_mapping
+token_mappings = get_token_mappings()
 
 args = {
     'demo_public': False, 
-    # 'model_name_or_path': 'facebook/opt-125m', 
     'model_name_or_path': 'facebook/opt-1.3b', 
-    # 'model_name_or_path': 'facebook/opt-2.7b', 
-    # 'model_name_or_path': 'facebook/opt-6.7b',
-    # 'model_name_or_path': 'facebook/opt-13b',
-    # 'load_fp16' : True,
     'load_fp16' : False,
     'prompt_max_length': None, 
     'max_new_tokens': 200, 
@@ -25,28 +34,31 @@ args = {
     'sampling_temp': 0.7, 
     'use_gpu': True, 
     'seeding_scheme': 'simple_1', 
-    'gamma': 0.7, 
+    'gamma': 0.25, 
     'delta': 2.0, 
     'normalizers': '', 
     'ignore_repeated_bigrams': False, 
-    'detection_z_threshold': 1.0, 
+    'detection_z_threshold': 4.0, 
     'select_green_tokens': True,
     'skip_model_load': False,
     'seed_separately': True,
-    'is_topic': True,
-    'topic_token_mapping': {
-        "sports": list(range(20000)),
-        "animals": list(range(20000, 40000)),
-        "technology": list(range(40000, 60000)),
-        # Add more topics and corresponding tokens as needed
-    },
+    'is_topic': False,
+    # 'topic_token_mapping': {
+    #     "sports": list(range(20000)),
+    #     "animals": list(range(20000, 40000)),
+    #     "technology": list(range(40000, 60000)),
+    #     "music": list(range(60000, 80000)),
+    #     "medicine": list(range(80000, 100000)), 
+    # },
+    'topic_token_mapping': token_mappings,
     'detected_topic': "",
 }
 
 if __name__ == '__main__':
-    # input_text = sports_input()
-    input_text = technology_input()
+    input_text = sports_input()
+    # input_text = technology_input()
     # input_text = animals_input()
+    input_text = medicine_input()
 
     args['normalizers'] = (args['normalizers'].split(",") if args['normalizers'] else [])
 
