@@ -10,11 +10,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def get_token_mappings():
     total_tokens = 100000
     topics = ["sports", "animals", "technology", "music", "medicine"]
-
-    # Initialize the mapping dictionary
     topic_token_mapping = {topic: [] for topic in topics}
 
-    # Distribute the tokens in a staggered manner
     for i in range(total_tokens):
         topic_index = i % len(topics)
         topic = topics[topic_index]
@@ -42,14 +39,7 @@ args = {
     'select_green_tokens': True,
     'skip_model_load': False,
     'seed_separately': True,
-    'is_topic': False,
-    # 'topic_token_mapping': {
-    #     "sports": list(range(20000)),
-    #     "animals": list(range(20000, 40000)),
-    #     "technology": list(range(40000, 60000)),
-    #     "music": list(range(60000, 80000)),
-    #     "medicine": list(range(80000, 100000)), 
-    # },
+    'is_topic': True,
     'topic_token_mapping': token_mappings,
     'detected_topic': "",
 }
@@ -58,7 +48,7 @@ if __name__ == '__main__':
     input_text = sports_input()
     # input_text = technology_input()
     # input_text = animals_input()
-    input_text = medicine_input()
+    # input_text = medicine_input()
 
     args['normalizers'] = (args['normalizers'].split(",") if args['normalizers'] else [])
 
