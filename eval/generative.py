@@ -6,6 +6,7 @@ of spaces to corrupt the green and red lists.
 Goodside, R. There are adversarial attacks for that proposal as well — in particular, generating 
 with emojis after words and then removing them before submitting defeats
 it., January 2023. URL https://twitter.com/goodside/status/1610682909647671306
+NOT USED IN EVALUATION
 """
 
 # Generative attack involves prompting the generation of the LLM instead of modifying its output

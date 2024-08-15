@@ -13,6 +13,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# Modifications made by Anonymous Author:
+# Modifications include changes to the WatermarkBase, WatermarkLogitsProcessor 
+# (now TopicWatermarkLogitsProcessor) and WatermarkDetector (now TopicWatermarkDetector)
+# to conform to topic-based watermarking scheme
 
 from __future__ import annotations
 import collections
@@ -58,11 +63,11 @@ class WatermarkBase:
         self.seeding_scheme = seeding_scheme
         self.rng = None
         self.hash_key = hash_key
-        self.select_green_tokens = select_green_tokens,
+        self.select_green_tokens = select_green_tokens
         self.topic_token_mapping = topic_token_mapping or {}
         self.detected_topic = detected_topic
 
-    def _seed_rng(self, input_ids: torch.LongTensor, seeding_scheme: str = None) -> None:
+    def _seed_rng(self, input_ids: torch.LongTensor, seeding_scheme: str = None) -> None: 
         # can optionally override the seeding scheme,
         # but uses the instance attr by default
         if seeding_scheme is None:
@@ -74,9 +79,6 @@ class WatermarkBase:
             # Seed the random number generator using the last token in the input sequence and hash key
             prev_token = input_ids[-1].item()
             self.rng.manual_seed(self.hash_key * prev_token)
-        elif seeding_scheme == "combined":
-            combined_seed = sum(input_ids[-5:].tolist())  
-            self.rng.manual_seed(self.hash_key * combined_seed)
         else: # error for unimplmented seeding 
             raise NotImplementedError(f"Unexpected seeding_scheme: {seeding_scheme}")
         return
@@ -88,28 +90,28 @@ class WatermarkBase:
 
         # Use topic-specific token mapping
         topic_tokens = self.topic_token_mapping.get(self.detected_topic, self.vocab)
-        topic_vocab_size = len(topic_tokens)
+        self.topic_vocab_size = len(topic_tokens)
 
         # Size of the green list based on the gamma and V size hyperparameters
         # greenlist_size = int(self.vocab_size * self.gamma)
-        greenlist_size = int(topic_vocab_size * self.gamma)
+        greenlist_size = int(self.topic_vocab_size)
 
         # Generate permutations on the vocabulary
         # vocab_permutation = torch.randperm(self.vocab_size, device=input_ids.device, generator=self.rng)
-        vocab_permutation = torch.randperm(topic_vocab_size, device=input_ids.device, generator=self.rng)
+        vocab_permutation = torch.randperm(self.vocab_size, device=input_ids.device, generator=self.rng)
 
         if self.select_green_tokens:  # directly
             # Selects the first green list size tokens from the permutations for the green list
-            greenlist_ids = vocab_permutation[:greenlist_size].tolist()  # new
+            greenlist_ids = vocab_permutation[:greenlist_size].tolist() 
         else:  # select green via red
             # Selects the last green list size tokens
             # greenlist_ids = vocab_permutation[(self.vocab_size - greenlist_size) :]  # legacy behavior
-            greenlist_ids = vocab_permutation[(topic_vocab_size - greenlist_size):].tolist()
+            greenlist_ids = vocab_permutation[(self.vocab_size - greenlist_size):].tolist()
 
-        global_greenlist_ids = [self.vocab.index(topic_tokens[idx]) for idx in greenlist_ids]
+        # global_greenlist_ids = [self.vocab.index(topic_tokens[idx]) for idx in greenlist_ids]
 
         # return greenlist_ids
-        return global_greenlist_ids
+        return greenlist_ids
 
 """
     - Extends WatermarkBase and HuggingFace LogitsProcessor modifying the logits of a model bassed on
@@ -176,6 +178,7 @@ class TopicWatermarkDetector(WatermarkBase):
         z_threshold: float = 4.0,
         normalizers: list[str] = ["unicode"],  # or also: ["unicode", "homoglyphs", "truecase"]
         ignore_repeated_bigrams: bool = True,
+        detected_topics: list[str] = [],
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -205,12 +208,14 @@ class TopicWatermarkDetector(WatermarkBase):
         if self.ignore_repeated_bigrams:
             assert self.seeding_scheme == "simple_1", "No repeated bigram credit variant assumes the single token seeding scheme."
 
+        self.detected_topics=detected_topics
+
     # Computes z-scores for the observed green token count
     def _compute_z_score(self, observed_count, T):
         # count refers to number of green tokens, T is total number of tokens
-        expected_count = self.gamma
-        numer = observed_count - expected_count * T
-        denom = sqrt(T * expected_count * (1 - expected_count))
+        # expected_count = self.gamma
+        numer = observed_count - self.expected_count * T
+        denom = sqrt(T * self.expected_count * (1 - self.expected_count))
         z = numer / denom
         return z
 
@@ -219,32 +224,9 @@ class TopicWatermarkDetector(WatermarkBase):
         p_value = scipy.stats.norm.sf(z)
         return p_value
 
-    def _get_topic_specific_token_counts(self, input_ids, detected_topic):
-        """Generates G and R lists for the detected topic and counts occurrences within the input text."""
-        topic_tokens = self.topic_token_mapping.get(detected_topic, self.vocab)
-        topic_vocab_size = len(topic_tokens)
-
-        # Generate G and R lists
-        greenlist_size = int(topic_vocab_size * self.gamma)
-        vocab_permutation = torch.randperm(topic_vocab_size, device=self.device, generator=self.rng)
-        
-        if self.select_green_tokens:
-            greenlist_ids = vocab_permutation[:greenlist_size].tolist()
-        else:
-            greenlist_ids = vocab_permutation[(topic_vocab_size - greenlist_size):].tolist()
-
-        global_greenlist_ids = [self.vocab.index(topic_tokens[idx]) for idx in greenlist_ids]
-        global_redlist_ids = [token_id for token_id in self.vocab if token_id not in global_greenlist_ids]
-
-        green_token_count = sum(1 for token in input_ids if token in global_greenlist_ids)
-        red_token_count = sum(1 for token in input_ids if token in global_redlist_ids)
-
-        return green_token_count, red_token_count, len(input_ids)
-
     def _score_sequence(
         self,
         input_ids: Tensor,
-        detected_topic: str,
         return_num_tokens_scored: bool = True,
         return_num_green_tokens: bool = True,
         return_green_fraction: bool = True,
@@ -252,50 +234,46 @@ class TopicWatermarkDetector(WatermarkBase):
         return_z_score: bool = True,
         return_p_value: bool = True,
     ):
-        
-        green_token_count, red_token_count, num_tokens_scored = self._get_topic_specific_token_counts(input_ids, detected_topic)
-
-
-        # if self.ignore_repeated_bigrams:
-        #     # Method that only counts a green/red hit once per unique bigram.
-        #     # New num total tokens scored (T) becomes the number unique bigrams.
-        #     # We iterate over all unqiue token bigrams in the input, computing the greenlist
-        #     # induced by the first token in each, and then checking whether the second
-        #     # token falls in that greenlist.
-        #     assert return_green_token_mask is False, "Can't return the green/red mask when ignoring repeats."
-        #     bigram_table = {}
-        #     token_bigram_generator = ngrams(input_ids.cpu().tolist(), 2)
-        #     freq = collections.Counter(token_bigram_generator)
-        #     num_tokens_scored = len(freq.keys())
-        #     for idx, bigram in enumerate(freq.keys()):
-        #         prefix = torch.tensor([bigram[0]], device=self.device)  # expects a 1-d prefix tensor on the randperm device
-        #         greenlist_ids = self._get_greenlist_ids(prefix)
-        #         bigram_table[bigram] = True if bigram[1] in greenlist_ids else False
-        #     green_token_count = sum(bigram_table.values())
-        # else:
-        #     num_tokens_scored = len(input_ids) - self.min_prefix_len
-        #     if num_tokens_scored < 1:
-        #         raise ValueError(
-        #             (
-        #                 f"Must have at least {1} token to score after "
-        #                 f"the first min_prefix_len={self.min_prefix_len} tokens required by the seeding scheme."
-        #             )
-        #         )
-        #     # Standard method.
-        #     # Since we generally need at least 1 token (for the simplest scheme)
-        #     # we start the iteration over the token sequence with a minimum
-        #     # num tokens as the first prefix for the seeding scheme,
-        #     # and at each step, compute the greenlist induced by the
-        #     # current prefix and check if the current token falls in the greenlist.
-        #     green_token_count, green_token_mask = 0, []
-        #     for idx in range(self.min_prefix_len, len(input_ids)):
-        #         curr_token = input_ids[idx]
-        #         greenlist_ids = self._get_greenlist_ids(input_ids[:idx])
-        #         if curr_token in greenlist_ids:
-        #             green_token_count += 1
-        #             green_token_mask.append(True)
-        #         else:
-        #             green_token_mask.append(False)
+        if self.ignore_repeated_bigrams:
+            # Method that only counts a green/red hit once per unique bigram.
+            # New num total tokens scored (T) becomes the number unique bigrams.
+            # We iterate over all unqiue token bigrams in the input, computing the greenlist
+            # induced by the first token in each, and then checking whether the second
+            # token falls in that greenlist.
+            assert return_green_token_mask is False, "Can't return the green/red mask when ignoring repeats."
+            bigram_table = {}
+            token_bigram_generator = ngrams(input_ids.cpu().tolist(), 2)
+            freq = collections.Counter(token_bigram_generator)
+            num_tokens_scored = len(freq.keys())
+            for idx, bigram in enumerate(freq.keys()):
+                prefix = torch.tensor([bigram[0]], device=self.device)  # expects a 1-d prefix tensor on the randperm device
+                greenlist_ids = self._get_greenlist_ids(prefix)
+                bigram_table[bigram] = True if bigram[1] in greenlist_ids else False
+            green_token_count = sum(bigram_table.values())
+        else:
+            num_tokens_scored = len(input_ids) - self.min_prefix_len
+            if num_tokens_scored < 1:
+                raise ValueError(
+                    (
+                        f"Must have at least {1} token to score after "
+                        f"the first min_prefix_len={self.min_prefix_len} tokens required by the seeding scheme."
+                    )
+                )
+            # Standard method.
+            # Since we generally need at least 1 token (for the simplest scheme)
+            # we start the iteration over the token sequence with a minimum
+            # num tokens as the first prefix for the seeding scheme,
+            # and at each step, compute the greenlist induced by the
+            # current prefix and check if the current token falls in the greenlist.
+            green_token_count, green_token_mask = 0, []
+            for idx in range(self.min_prefix_len, len(input_ids)):
+                curr_token = input_ids[idx]
+                greenlist_ids = self._get_greenlist_ids(input_ids[:idx])
+                if curr_token in greenlist_ids:
+                    green_token_count += 1
+                    green_token_mask.append(True)
+                else:
+                    green_token_mask.append(False)
 
         # Results dictionary
         score_dict = dict()
@@ -312,8 +290,8 @@ class TopicWatermarkDetector(WatermarkBase):
             if z_score is None:
                 z_score = self._compute_z_score(green_token_count, num_tokens_scored)
             score_dict.update(dict(p_value=self._compute_p_value(z_score)))
-        # if return_green_token_mask:
-        #     score_dict.update(dict(green_token_mask=green_token_mask))
+        if return_green_token_mask:
+            score_dict.update(dict(green_token_mask=green_token_mask))
 
         return score_dict
 
@@ -328,7 +306,6 @@ class TopicWatermarkDetector(WatermarkBase):
         self,
         text: str = None,
         tokenized_text: list[int] = None,
-        detected_topics: list[str] = [],
         return_prediction: bool = True,
         return_scores: bool = True,
         z_threshold: float = None,
@@ -346,7 +323,6 @@ class TopicWatermarkDetector(WatermarkBase):
         if len(self.normalizers) > 0:
             print(f"Text after normalization:\n\n{text}\n")
 
-
         if tokenized_text is None: # Ensure tokenizer is available for raw text processing
             assert self.tokenizer is not None, (
                 "Watermark detection on raw string ",
@@ -362,24 +338,22 @@ class TopicWatermarkDetector(WatermarkBase):
             if (self.tokenizer is not None) and (tokenized_text[0] == self.tokenizer.bos_token_id):
                 tokenized_text = tokenized_text[1:]
 
-
-        detected_topic = self._select_topic(detected_topics)
+        self.detected_topic = self._select_topic(self.detected_topics)
+        topic_tokens = self.topic_token_mapping.get(self.detected_topic, self.vocab)
+        topic_vocab_size = len(topic_tokens)
+        self.expected_count = topic_vocab_size / self.vocab_size
 
         # call score method to evaluate the sequence
         output_dict = {}
-        if detected_topic:
-            score_dict = self._score_sequence(tokenized_text, detected_topic, **kwargs)
-            if return_scores:
-                output_dict.update({"scores": score_dict})
-
-            # if passed return_prediction then perform the hypothesis test and return the outcome
-            if return_prediction:
-                z_threshold = z_threshold if z_threshold else self.z_threshold
-                assert z_threshold is not None, "Need a threshold in order to decide outcome of detection test"
-                output_dict["prediction"] = score_dict["z_score"] > z_threshold
-                if output_dict["prediction"]:
-                    output_dict["confidence"] = 1 - score_dict["p_value"]
-        else:
-            output_dict["Error"] = "No valid topic detected for watermark analysis."
+        score_dict = self._score_sequence(tokenized_text, **kwargs)
+        if return_scores:
+            output_dict.update(score_dict)
+        # if passed return_prediction then perform the hypothesis test and return the outcome
+        if return_prediction:
+            z_threshold = z_threshold if z_threshold else self.z_threshold
+            assert z_threshold is not None, "Need a threshold in order to decide outcome of detection test"
+            output_dict["prediction"] = score_dict["z_score"] > z_threshold
+            if output_dict["prediction"]:
+                output_dict["confidence"] = 1 - score_dict["p_value"]
 
         return output_dict

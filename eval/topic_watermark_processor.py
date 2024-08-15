@@ -13,6 +13,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# Modifications made by Anonymous Author:
+# Modifications include changes to the WatermarkBase, WatermarkLogitsProcessor 
+# (now TopicWatermarkLogitsProcessor) and WatermarkDetector (now TopicWatermarkDetector)
+# to conform to topic-based watermarking scheme
 
 from __future__ import annotations
 import collections

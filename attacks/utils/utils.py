@@ -107,9 +107,7 @@ def llm_topic_extraction(input_text):
         num_beams=5
     )
 
-    # Decode the output
     output_text = tokenizer.decode(output_sequences[0], skip_special_tokens=True)
-    # Extract the topics from the output text
     topics_start = output_text.find("Topics:") + len("Topics:")
     topics_text = output_text[topics_start:].strip().split(', ')
     topics_text = [x.lower() for x in topics_text]

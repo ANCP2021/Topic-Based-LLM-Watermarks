@@ -1,8 +1,9 @@
 """
-A tokenization attack is classified as a form of insertion, where a token is modified into
-multiple subsequent tokens. For example, given the token “sports” within a G list. An attacker can add characters
-such as '_' or '*', creating additional tokens categorized as R listed tokens by the detection scheme. The original G
-listed token, “sports”, is manipulated into “s_p_o_r_t_s”, creating multiple new R listed tokens in the text sequence.
+A tokenization attack alters text that causes significant changes in how the text is tokenized
+into subwords. This type of attack is can drastically alter the sequence of tokens without changing 
+the overall meaning of the text. By introducing minor changes—such as inserting special
+characters (e.g., underscores '_', asterisks '*') or replacing spaces, newline characters, or punctuation—the attack
+splits what would normally be a single, valid token into multiple sub-tokens.
 """
 import random
 from nltk import pos_tag
@@ -12,37 +13,37 @@ class TokenizationAttack:
     def __init__(self):
         super().__init__()
 
-    # Function to modify text to change subword tokenization
-    def tokenization_attack(self, text, n_edits, insert_char=' ', max_insertions_per_word=1, inference=False):
+    # Function to modify text to change tokenization
+    def tokenization_attack(self, text, n_edits, inference=False):
         words = text.split()
-        tagged_words = pos_tag(words) 
+        tagged_words = pos_tag(words)
         important_words = [word for word, tag in tagged_words if is_important_word(tag)]
-        
+
         for _ in range(n_edits):
             # Assumption that there is a watermark, important words are the target
-            if inference and important_words: 
+            if inference and important_words:
                 word = random.choice(important_words)
                 pos = words.index(word)
             else:
-                pos = random.randint(0, len(words) - 2)
+                pos = random.randint(0, len(words) - 1)
                 word = words[pos]
-            
-            if len(word) > 1:
-                num_insertions = random.randint(1, min(max_insertions_per_word, len(word) - 1))
-                insert_positions = random.sample(range(1, len(word)), num_insertions)
-                
-                # Insert character to randomly chosen word
-                modified_word = list(word)
-                for insert_pos in sorted(insert_positions, reverse=True):
-                    modified_word.insert(insert_pos, insert_char)
 
-                words[pos] = ''.join(modified_word)
+            if '\n' in word:
+                words[pos] = word.replace('\n', ' ')
+            elif '.' in word:
+                words[pos] = word.replace('.', ' ')
+            elif ' ' in word:
+                words[pos] = word.replace(' ', '_')
+            else:
+                if len(word) > 1:
+                    insert_pos = random.randint(1, len(word) - 1)
+                    modified_word = word[:insert_pos] + '_' + word[insert_pos:]
+                    words[pos] = modified_word
 
-                # Do not duplicate important words
-                if inference:
-                    important_words = [w for w in important_words if w != word]
+            if inference:
+                important_words = [w for w in important_words if w != word]
 
-        return ' '.join(words)
+        return ' '.join(words) 
 
 # Use Case Example
 if __name__ == '__main__':
@@ -55,5 +56,5 @@ if __name__ == '__main__':
     )
     # Example of 2 inserted '_' characters in 3 words which are not in important list, so there is no watermark assumed by the attacker
     tokenization = TokenizationAttack()
-    text = tokenization.tokenization_attack(watermarked_text, n_edits=3, insert_char='_', max_insertions_per_word=2)
+    text = tokenization.tokenization_attack(watermarked_text, n_edits=3, inference=False)
     print(text)
