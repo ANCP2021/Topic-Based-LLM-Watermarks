@@ -194,6 +194,7 @@ def detect(original_prompt, input_text, args, device=None, tokenizer=None):
                                             ignore_repeated_bigrams=args['ignore_repeated_bigrams'],
                                             select_green_tokens=args['select_green_tokens'],
                                             topic_token_mapping=args['topic_token_mapping'],
+                                            detected_topics=detected_topics
                                             )
     else:
         watermark_detector = WatermarkDetector(vocab=list(tokenizer.get_vocab().values()),
@@ -207,11 +208,7 @@ def detect(original_prompt, input_text, args, device=None, tokenizer=None):
                                             select_green_tokens=args['select_green_tokens'])
 
     if len(input_text)-1 > watermark_detector.min_prefix_len:
-        if args['is_topic']:
-            # score_dict = watermark_detector.detect(input_text, detected_topics=detected_topics)
-            score_dict = watermark_detector.detect(input_text)
-        else:
-            score_dict = watermark_detector.detect(input_text)
+        score_dict = watermark_detector.detect(input_text)
 
         output = list_format_scores(score_dict, watermark_detector.z_threshold)
     else:

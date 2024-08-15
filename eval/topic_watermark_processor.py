@@ -48,7 +48,6 @@ class WatermarkBase:
         select_green_tokens: bool = True,
         topic_token_mapping: dict = None,
         detected_topic: str = "",
-        device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     ):
 
         # watermarking parameters
@@ -58,17 +57,12 @@ class WatermarkBase:
         self.delta = delta
         self.seeding_scheme = seeding_scheme
         self.rng = None
-        self.device = device
-        self.rng = torch.Generator(device=self.device)
         self.hash_key = hash_key
         self.select_green_tokens = select_green_tokens
         self.topic_token_mapping = topic_token_mapping or {}
         self.detected_topic = detected_topic
 
-    def _seed_rng(self, input_ids: torch.LongTensor, seeding_scheme: str = None) -> None:
-        if self.rng is None:
-            self.rng = torch.Generator(device=input_ids.device)
-        
+    def _seed_rng(self, input_ids: torch.LongTensor, seeding_scheme: str = None) -> None: 
         # can optionally override the seeding scheme,
         # but uses the instance attr by default
         if seeding_scheme is None:
@@ -80,9 +74,6 @@ class WatermarkBase:
             # Seed the random number generator using the last token in the input sequence and hash key
             prev_token = input_ids[-1].item()
             self.rng.manual_seed(self.hash_key * prev_token)
-        elif seeding_scheme == "combined":
-            combined_seed = sum(input_ids[-5:].tolist())  
-            self.rng.manual_seed(self.hash_key * combined_seed)
         else: # error for unimplmented seeding 
             raise NotImplementedError(f"Unexpected seeding_scheme: {seeding_scheme}")
         return
@@ -94,15 +85,15 @@ class WatermarkBase:
 
         # Use topic-specific token mapping
         topic_tokens = self.topic_token_mapping.get(self.detected_topic, self.vocab)
-        topic_vocab_size = len(topic_tokens)
+        self.topic_vocab_size = len(topic_tokens)
 
         # Size of the green list based on the gamma and V size hyperparameters
         # greenlist_size = int(self.vocab_size * self.gamma)
-        greenlist_size = int(topic_vocab_size * self.gamma)
+        greenlist_size = int(self.topic_vocab_size)
 
         # Generate permutations on the vocabulary
         # vocab_permutation = torch.randperm(self.vocab_size, device=input_ids.device, generator=self.rng)
-        vocab_permutation = torch.randperm(topic_vocab_size, device=input_ids.device, generator=self.rng)
+        vocab_permutation = torch.randperm(self.vocab_size, device=input_ids.device, generator=self.rng)
 
         if self.select_green_tokens:  # directly
             # Selects the first green list size tokens from the permutations for the green list
@@ -110,7 +101,7 @@ class WatermarkBase:
         else:  # select green via red
             # Selects the last green list size tokens
             # greenlist_ids = vocab_permutation[(self.vocab_size - greenlist_size) :]  # legacy behavior
-            greenlist_ids = vocab_permutation[(topic_vocab_size - greenlist_size):].tolist()
+            greenlist_ids = vocab_permutation[(self.vocab_size - greenlist_size):].tolist()
 
         # global_greenlist_ids = [self.vocab.index(topic_tokens[idx]) for idx in greenlist_ids]
 
@@ -182,6 +173,7 @@ class TopicWatermarkDetector(WatermarkBase):
         z_threshold: float = 4.0,
         normalizers: list[str] = ["unicode"],  # or also: ["unicode", "homoglyphs", "truecase"]
         ignore_repeated_bigrams: bool = True,
+        detected_topics: list[str] = [],
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -211,12 +203,14 @@ class TopicWatermarkDetector(WatermarkBase):
         if self.ignore_repeated_bigrams:
             assert self.seeding_scheme == "simple_1", "No repeated bigram credit variant assumes the single token seeding scheme."
 
+        self.detected_topics=detected_topics
+
     # Computes z-scores for the observed green token count
     def _compute_z_score(self, observed_count, T):
         # count refers to number of green tokens, T is total number of tokens
-        expected_count = self.gamma
-        numer = observed_count - expected_count * T
-        denom = sqrt(T * expected_count * (1 - expected_count))
+        # expected_count = self.gamma
+        numer = observed_count - self.expected_count * T
+        denom = sqrt(T * self.expected_count * (1 - self.expected_count))
         z = numer / denom
         return z
 
@@ -310,7 +304,6 @@ class TopicWatermarkDetector(WatermarkBase):
         return_prediction: bool = True,
         return_scores: bool = True,
         z_threshold: float = None,
-        detected_topics: list[str] = [],
         **kwargs,
     ) -> dict:
 
@@ -340,7 +333,10 @@ class TopicWatermarkDetector(WatermarkBase):
             if (self.tokenizer is not None) and (tokenized_text[0] == self.tokenizer.bos_token_id):
                 tokenized_text = tokenized_text[1:]
 
-        self.detected_topic = self._select_topic(detected_topics)
+        self.detected_topic = self._select_topic(self.detected_topics)
+        topic_tokens = self.topic_token_mapping.get(self.detected_topic, self.vocab)
+        topic_vocab_size = len(topic_tokens)
+        self.expected_count = topic_vocab_size / self.vocab_size
 
         # call score method to evaluate the sequence
         output_dict = {}
