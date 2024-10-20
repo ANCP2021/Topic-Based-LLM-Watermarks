@@ -7,7 +7,7 @@ splits what would normally be a single, valid token into multiple sub-tokens.
 """
 import random
 from nltk import pos_tag
-from utils.utils import is_important_word
+from utils import is_important_word
 
 class TokenizationAttack:
     def __init__(self):

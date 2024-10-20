@@ -5,7 +5,7 @@ stings of characters within the specified output sequence, with the aim of dimin
 """
 import random
 from nltk import pos_tag
-from utils.utils import is_important_word
+from utils import is_important_word
 
 class DiscreteAlterations:
     def __init__(self):

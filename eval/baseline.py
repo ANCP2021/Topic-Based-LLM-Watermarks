@@ -6,7 +6,7 @@ detection accuracy.
 import random
 from nltk.corpus import wordnet
 from nltk import pos_tag
-from utils.utils import is_important_word
+from utils import is_important_word
 
 class BaselineAttack:
     def __init__(self):

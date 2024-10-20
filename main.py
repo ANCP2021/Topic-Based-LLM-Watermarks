@@ -43,22 +43,12 @@ args = {
     'skip_model_load': False,
     'seed_separately': True,
     'is_topic': False,
-    # 'topic_token_mapping': {
-    #     "sports": list(range(20000)),
-    #     "animals": list(range(20000, 40000)),
-    #     "technology": list(range(40000, 60000)),
-    #     "music": list(range(60000, 80000)),
-    #     "medicine": list(range(80000, 100000)), 
-    # },
     'topic_token_mapping': token_mappings,
     'detected_topic': "",
 }
 
 if __name__ == '__main__':
     input_text = sports_input()
-    # input_text = technology_input()
-    # input_text = animals_input()
-    input_text = medicine_input()
 
     args['normalizers'] = (args['normalizers'].split(",") if args['normalizers'] else [])
 
